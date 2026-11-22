@@ -28,8 +28,8 @@ Keep under 120 lines; `scripts/check-memory.py` flags `active` rules older than 
 
 ## Channels & Finishing Pipelines
 
-- [ENG-06] model=higgsfield_web_unlimited | helpful=6 | harmful=0 | verified=2026-11-21 | status=active
-  Default `0 cr.` visual channel on Unlimited-eligible plans; confirm the UI shows `Unlimited` ON / `0 credits` before queuing and log every run via `scripts/hf_guard.py log-web` so retries and model failures stay visible to `retro_harvest.py`.
+- [ENG-06] model=higgsfield_web_unlimited | helpful=6 | harmful=0 | verified=2026-11-22 | status=active
+  Default `0 cr.` visual channel on Unlimited-eligible plans; confirm the UI shows `Unlimited` ON / `0 credits` before queuing and log every run via `scripts/hf_guard.py log-web`. Note: some `Ultra` plans are **image-only Unlimited** (video toggle redirects to `/market#image-unlimited`); check once per session and cache so video rounds stop re-probing.
   Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`
 
 - [ENG-07] model=remotion_prores4444_endcard | helpful=2 | harmful=0 | verified=2026-11-20 | status=active
@@ -46,4 +46,8 @@ Keep under 120 lines; `scripts/check-memory.py` flags `active` rules older than 
 
 - [ENG-10] model=flux_3_image | helpful=3 | harmful=0 | verified=2026-11-22 | status=active
   Paired with uploaded real location reference photographs in `R0`/`R3`, `flux_3_image` and `seedream_5_5` eliminate postcard HDR sheen and hold authentic unretouched 35mm documentary color science on live-action scenes.
+  Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`
+
+- [ENG-11] model=kling3_0 | helpful=2 | harmful=2 | verified=2026-11-22 | status=active
+  `kling3_0 --mode pro --sound off` (`~1.75 cr./s`) works well for short (`3–6s`) stylized 2D/3D/animal action, silent acting under off-screen VO, and reaction cutaways (direct natural closed-mouth expressions so mouths do not flap accidentally), but drifts past `8s` (warped paws/hands, crawling backgrounds, ear morphs) and should not be used for visible on-camera speaking faces where audio-driven lip-sync (`intone` / Lipsync Studio / native-speech models) is needed.
   Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`

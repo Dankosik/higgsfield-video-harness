@@ -73,24 +73,37 @@ Code) so typography, UI, cursors, and brand logos stay razor-sharp.
 
 ## 4. Remotion Sub-Flow Recipe (`sub_flows: ["remotion_overlays"]`)
 
-Use this plug-in sub-flow whenever a `scratch_cinema` or other primary campaign
-needs animated brand logos, kinetic titles, callout badges, or custom animated
-endcards embedded into the main video without switching the primary track:
+**Mandatory read:** Whenever `brief.md` or `shotlist.json` declares
+`sub_flows: ["remotion_overlays"]`, read this skill *before* coding or rendering
+overlays. Use this plug-in sub-flow whenever a `scratch_cinema` or other primary
+campaign needs animated brand logos, kinetic titles, callout badges, or custom
+animated endcards embedded into the main video without switching the primary
+track:
 
 1. **Lock base cut timing first:** Build `draft_cut.mp4` or `video_only.mp4`
    (`R4B`/`R5`) so exact `fps_target`, resolution (`1920x1080` or `1080x1920`),
    and shot/VO hit timestamps are truth — never guess overlay timings.
-2. **Design & code the transparent layer:** Pull brand hex colors, fonts, and
-   logo vectors from `brands/<brand>/brand.md` and `style-bible.md` (draft an
-   HTML Design Sheet first when iterating typography). Build the animated logo,
-   callout, or endcard composition in **Remotion** (transparent background,
-   exact `fps_target` and `durationInFrames`).
-3. **Render with true alpha:** Export transparent `1080p` **ProRes 4444**
-   (`--codec=prores --prores-profile=4444 --pixel-format=yuva444p10le`, or a
-   transparent PNG sequence if ProRes 4444 is unavailable) into
-   `campaigns/<slug>/media/exports/overlay.mov`.
+2. **Design & code the transparent layer (Caption Pacing & Verbatim Sync Law):**
+   Pull brand hex colors, fonts, and logo vectors from `brands/<brand>/brand.md`
+   and `style-bible.md` (draft an HTML Design Sheet first when iterating
+   typography). For Shorts/Reels subtitles and kinetic captions:
+   - Keep **max `2–6` words (`<= 2` short lines)** per cue turning over every
+     **`1.0–2.5s`** — NEVER park 3-line walls of text on screen for `5–9s`.
+   - **Verbatim word-level sync:** align every cue strictly to the **actual
+     spoken audio timestamps** (word-by-word or phrase-by-phrase measured from
+     the audio waveform/ASR, never guessed from shot duration), matching spoken
+     words verbatim. If a VO take has a mispronunciation or dropped word,
+     regenerate that audio line instead of letting captions contradict speech.
+   - Build the composition in **Remotion** (or native RGBA renderer) with
+     transparent background, exact `fps_target`, `durationInFrames`, and mobile
+     safe-zone margins (`y = 62–76%` in `9:16`, never covering faces/props).
+3. **Render with true alpha into `media/work/`:** Export transparent `1080p`
+   **ProRes 4444** (`--codec=prores --prores-profile=4444
+   --pixel-format=yuva444p10le`, or a transparent PNG sequence if ProRes 4444 is
+   unavailable) into `campaigns/<slug>/media/work/overlay.mov` (keep gigabyte
+   intermediate renders in `media/work/`, never inside client `media/exports/`).
 4. **Composite post-LUT & verify:** Run
-   `make assemble CAMPAIGN=<slug> LUT=<grade.cube> GRAIN=4 OVERLAY=campaigns/<slug>/media/exports/overlay.mov`
+   `make assemble CAMPAIGN=<slug> LUT=<grade.cube> GRAIN=4 OVERLAY=campaigns/<slug>/media/work/overlay.mov`
    so creative color grading never shifts brand hex colors, then verify exact
    brand color fidelity and phone-size legibility in `reviewer-agent`.
 

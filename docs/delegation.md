@@ -50,12 +50,22 @@ inside the Root Producer turn** — with primary inputs only (`brief.md`,
 compiled `taste-active.md` or `taste-log.md`, `shotlist.json`, `qa_media.py
 --json` reports including temporal stutter/jerk and cross-cut luma/bitrate
 metrics, reference photos, `lookbook.png`/stills/`3x2` contact sheets, actual
-`.mp4` video clips via `read_file`, plus `1:1` unscaled `--crops` strips and
+`.mp4` video clips or pre-sliced `<= 20s` `qc/verify_slices/part_*.mp4` master
+segments via `read_file`, plus `1:1` unscaled `--crops` strips and
 `qa_media.py batch --strict --json` for `R5` masters) — zero builder rationale.
 Log every returned `#review-result` via `scripts/qa_media.py log-review`
-(passing `--qa-report`, `--crops` for `R5`, and `--reviewer-id`; `R4`/`R5`
-`PASS` fails closed without proof files) so `R6` (`studio-retro`) can mine real
-defect patterns.
+(passing `--qa-report`, `--sheet`, `--crops` for `R5`, and `--reviewer-id`;
+`R4`/`R5` `PASS` fails closed without proof files) so `R6` (`studio-retro`) can
+mine real defect patterns.
+
+- **Fast bounded review handoff (`<= 12` tool calls, parallel batches):** For
+  masters `> 20s`, always run `qa_media.py render --verify-slices-dir
+  campaigns/<slug>/qc/verify_slices` first and hand exact paths to
+  `reviewer-agent` so it batches text/JSON/PNGs (up to 5–6 per turn) and reads
+  **at most 2 `.mp4` files per turn** (preventing context compaction and
+  re-reads) instead of running ad-hoc shell/Python slicing scripts. Parallelize
+  per-clip `R5` reviews (1–3 clips per lane) and never spawn redundant
+  duplicate reviewers on clips that already passed.
 
 - **Filter defects, leave taste to the Director:** score strictly with the
   binary rubric in [`video-qa`](../.agents/skills/video-qa/SKILL.md) using the

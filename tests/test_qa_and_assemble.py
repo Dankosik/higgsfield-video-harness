@@ -1121,6 +1121,97 @@ class TestQaAndAssemble(unittest.TestCase):
             self.assertEqual(code_bad, 1, msg=comb_bad)
             self.assertFalse(data_bad["ok"], msg=data_bad)
 
+            # qa_media.py render --verify-slices-dir slices a 3s render into <= 1.5s part_XX.mp4 chunks
+            slices_dir = camp / "qc" / "verify_slices"
+            rc_sl, sl_data, sl_err = self._run_qa(
+                "render",
+                str(out_mp4),
+                "--verify-slices-dir",
+                str(slices_dir),
+                "--slice-seconds",
+                "1.5",
+            )
+            self.assertEqual(rc_sl, 0, msg=f"err={sl_err}\ndata={sl_data}")
+            self.assertIsInstance(sl_data.get("verify_slices"), list, msg=sl_data)
+            self.assertGreaterEqual(len(sl_data["verify_slices"]), 2, msg=sl_data)
+            for sp in sl_data["verify_slices"]:
+                self.assertTrue(Path(sp).is_file(), f"missing verify slice: {sp}")
+
+    def test_voice_cadence_pause_telemetry_and_vo_track_trim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            camp = tmp / "camp"
+            shots_dir = camp / "media" / "shots"
+            audio_dir = camp / "media" / "audio"
+            shots_dir.mkdir(parents=True)
+            audio_dir.mkdir(parents=True)
+
+            # Build a VO WAV with 0.4s leading silence + 1.0s tone + 0.6s internal silence + 1.0s tone
+            vo_pauses = audio_dir / "vo_pauses.wav"
+            _ffmpeg(
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=0.4",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1.0",
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=0.6",
+                "-f", "lavfi", "-i", "sine=frequency=520:sample_rate=48000:duration=1.0",
+                "-filter_complex", "[0:a][1:a][2:a][3:a]concat=n=4:v=0:a=1[a]",
+                "-map", "[a]",
+                str(vo_pauses),
+            )
+            rc_v, v_data, v_err = self._run_qa("voice", str(vo_pauses), "--window", "3.5")
+            self.assertEqual(rc_v, 0, msg=f"err={v_err}\ndata={v_data}")
+            self.assertGreaterEqual(v_data.get("speech_start", 0.0), 0.3)
+            self.assertGreaterEqual(len(v_data.get("internal_pauses") or []), 1, msg=v_data)
+            warn_codes = {w["code"] for w in (v_data.get("warnings") or [])}
+            self.assertIn("leading_silence", warn_codes, msg=v_data)
+            self.assertIn("long_internal_pause", warn_codes, msg=v_data)
+
+            # Verify assemble.sh honors trim_start_s / trim_end_s on audio.voiceover.tracks[]
+            clip1 = shots_dir / "s01.mp4"
+            _ffmpeg(
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                str(clip1),
+            )
+            manifest = {
+                "schema_version": 1,
+                "fps_target": 24,
+                "shots": [{"id": "s01", "duration_s": 3, "video": {"selected_take": "media/shots/s01.mp4"}}],
+                "audio": {
+                    "music": {"enabled": False, "selected_file": None},
+                    "voiceover": {
+                        "enabled": True,
+                        "tracks": [
+                            {
+                                "selected_file": "media/audio/vo_pauses.wav",
+                                "start_s": 0.0,
+                                "trim_start_s": 0.4,
+                                "trim_end_s": 1.4,
+                            }
+                        ],
+                    },
+                },
+            }
+            manifest_path = camp / "shotlist.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            out_mp4 = camp / "media" / "exports" / "master_trim.mp4"
+            stems_dir = camp / "media" / "exports" / "stems"
+            proc = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--campaign", str(camp),
+                    "--manifest", str(manifest_path),
+                    "--out", str(out_mp4),
+                    "--stems-dir", str(stems_dir),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=f"VO trim assemble failed:\nstdout={proc.stdout}\nstderr={proc.stderr}")
+            # Trimmed VO stem should start speaking right at 0.0s with ~1.0s duration (leading 0.4s removed!)
+            rc_t, t_data, t_err = self._run_qa("voice", str(stems_dir / "vo.wav"), "--window", "1.5")
+            self.assertEqual(rc_t, 0, msg=f"err={t_err}\ndata={t_data}")
+            self.assertLessEqual(t_data.get("speech_start", 1.0), 0.1, msg=t_data)
+            self.assertLessEqual(t_data.get("speech_end", 9.0), 1.25, msg=t_data)
+
 
 if __name__ == "__main__":
     unittest.main()

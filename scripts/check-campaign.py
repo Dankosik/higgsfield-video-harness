@@ -867,7 +867,7 @@ def _validate_shotlist(
                 isinstance(start_src, str)
                 and start_src.strip().endswith(".last_frame")
                 and video_ref_count == 0
-                and v_model in ("seedance_2_5", "cinematic_studio_video_4_0", "kling4_0", "kling_4_0_flash")
+                and v_model in ("seedance_2_5", "cinematic_studio_video_4_0", "kling4_0", "kling_4_0_flash", "kling3_0")
             ):
                 warnings.append(
                     f"shotlist.json (shot {sid}.video): bridging from '{start_src.strip()}' without "
@@ -905,20 +905,57 @@ def _validate_shotlist(
             pf = Path(video["prompt_file"].strip())
             resolved_pf = pf if pf.is_absolute() else (campaign_dir / pf if (campaign_dir / pf).is_file() else repo_root / pf)
             shot_dur = shot.get("duration_s")
-            if resolved_pf.is_file() and isinstance(shot_dur, (int, float)) and not isinstance(shot_dur, bool) and shot_dur > 0:
+            # When edit.trim_out harvests a sub-window from a longer generated take, compare prompt
+            # timecodes against the raw generation duration (final_params/draft_params.duration) first.
+            has_trim = isinstance(edit_cfg, dict) and edit_cfg.get("trim_out") is not None
+            raw_gen_dur = None
+            if has_trim:
+                for pdict in (final_params, draft_params, video):
+                    cand = pdict.get("duration") if isinstance(pdict, dict) else None
+                    if isinstance(cand, (int, float)) and not isinstance(cand, bool) and cand > 0:
+                        raw_gen_dur = float(cand)
+                        break
+            target_prompt_dur = raw_gen_dur if has_trim else (
+                float(shot_dur) if isinstance(shot_dur, (int, float)) and not isinstance(shot_dur, bool) and shot_dur > 0 else None
+            )
+            if resolved_pf.is_file() and target_prompt_dur is not None and target_prompt_dur > 0:
                 try:
                     ptxt = resolved_pf.read_text(encoding="utf-8", errors="ignore")
                     ranges = [(float(m.group(1)), float(m.group(2))) for m in PROMPT_TIME_RANGE_RE.finditer(ptxt)]
                     valid_ranges = [(a, b) for a, b in ranges if b > a]
                     if len(valid_ranges) >= 2:
                         max_end = max(b for _, b in valid_ranges)
-                        if abs(max_end - float(shot_dur)) > 0.5:
+                        if abs(max_end - target_prompt_dur) > 0.5:
                             warnings.append(
                                 f"shotlist.json (shot {sid}.video): prompt timecodes end at {max_end:g}s "
-                                f"but shot duration_s={float(shot_dur):g}s (delta > 0.5s)"
+                                f"but target duration={target_prompt_dur:g}s (delta > 0.5s)"
                             )
                 except OSError:
                     pass
+
+        # Anti-static-shot / long-clip drift warning (> 8s single-shot I2V compounds morphing & stalls pacing)
+        if isinstance(video, dict):
+            vm = str(video.get("model") or "").strip()
+            shot_dur_num = (
+                float(shot["duration_s"])
+                if isinstance(shot.get("duration_s"), (int, float)) and not isinstance(shot.get("duration_s"), bool)
+                else None
+            )
+            multi_shot_flag = bool(
+                (isinstance(final_params, dict) and final_params.get("multi_shots") is True)
+                or (isinstance(draft_params, dict) and draft_params.get("multi_shots") is True)
+                or video.get("multi_shots") is True
+            )
+            if (
+                shot_dur_num is not None
+                and shot_dur_num > 8.0
+                and vm not in ("intone", "seedance_2_5", "cinematic_studio_video_4_0", "cinematic_studio_video_3_5", "cinematic_studio_3_0")
+                and not multi_shot_flag
+            ):
+                warnings.append(
+                    f"shotlist.json (shot {sid}.video): single-shot I2V duration ({shot_dur_num:g}s > 8s) on '{vm}' "
+                    "compounds hand/face/object morphing and stalls pacing; split into 3-6s beats, add reaction/cutaway coverage, or use 4K punch-in / multi-shot"
+                )
 
     # Duration check against target_duration_s (±0.5s)
     target_dur = data.get("target_duration_s")
@@ -1021,6 +1058,22 @@ def _validate_shotlist(
                     if isinstance(tr, dict):
                         _check_prompt_file(tr.get("prompt_file"), f"audio.{track_name}.tracks[{tidx}]")
                         _check_prompt_file(tr.get("script_file"), f"audio.{track_name}.tracks[{tidx}]")
+                        ts_in = tr.get("trim_start_s")
+                        ts_out = tr.get("trim_end_s")
+                        if ts_in is not None and (isinstance(ts_in, bool) or not isinstance(ts_in, (int, float)) or ts_in < 0):
+                            errors.append(f"shotlist.json (audio.{track_name}.tracks[{tidx}].trim_start_s): must be a number >= 0")
+                        if ts_out is not None and (isinstance(ts_out, bool) or not isinstance(ts_out, (int, float)) or ts_out <= 0):
+                            errors.append(f"shotlist.json (audio.{track_name}.tracks[{tidx}].trim_end_s): must be a positive number")
+                        if (
+                            isinstance(ts_in, (int, float))
+                            and not isinstance(ts_in, bool)
+                            and isinstance(ts_out, (int, float))
+                            and not isinstance(ts_out, bool)
+                            and ts_out <= ts_in
+                        ):
+                            errors.append(
+                                f"shotlist.json (audio.{track_name}.tracks[{tidx}]): trim_end_s ({ts_out}) must exceed trim_start_s ({ts_in})"
+                            )
     elif isinstance(top_audio, list):
         for idx, track_obj in enumerate(top_audio):
             if not isinstance(track_obj, dict):

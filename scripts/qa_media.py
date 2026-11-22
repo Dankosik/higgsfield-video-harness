@@ -1129,12 +1129,60 @@ def inspect_clip(
     }
 
 
+def _build_verify_slices(
+    ffmpeg: str,
+    video_path: Path,
+    duration: float,
+    out_dir: Path,
+    slice_seconds: float = 20.0,
+) -> list[str]:
+    """Stream-copy long masters into <= slice_seconds chunks for fast reviewer-agent MP4 playback."""
+    if not math.isfinite(slice_seconds) or slice_seconds <= 0.0:
+        raise ValueError("--slice-seconds must be a positive number")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("part_*.mp4"):
+        old.unlink(missing_ok=True)
+    if duration <= slice_seconds + 0.5:
+        return [str(video_path)]
+    pattern = str(out_dir / "part_%02d.mp4")
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(video_path),
+            "-c",
+            "copy",
+            "-map",
+            "0",
+            "-f",
+            "segment",
+            "-segment_time",
+            f"{slice_seconds:g}",
+            "-reset_timestamps",
+            "1",
+            pattern,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"failed to create verify slices: {proc.stderr.strip()}")
+    slices = sorted(out_dir.glob("part_*.mp4"))
+    return [str(p) for p in slices] if slices else [str(video_path)]
+
+
 def inspect_render(
     video_path: Path,
     *,
     sheet_path: Path | None = None,
     crops_path: Path | None = None,
     crop_focus: str = "thirds",
+    verify_slices_dir: Path | None = None,
+    slice_seconds: float = 20.0,
     target_lufs: float = -14.0,
     lufs_tolerance: float = 1.0,
     max_true_peak: float = -1.0,
@@ -1161,6 +1209,14 @@ def inspect_render(
     duration = report["metadata"].get("duration") or 0.0
     loudness = report["loudness"]
     errors: list[dict[str, Any]] = report["errors"]
+
+    if verify_slices_dir is not None and duration > 0.0:
+        ffmpeg, _ = _ensure_ffmpeg_tools()
+        report["verify_slices"] = _build_verify_slices(
+            ffmpeg, video_path, float(duration), verify_slices_dir, slice_seconds=slice_seconds
+        )
+    else:
+        report["verify_slices"] = None
 
     if (
         not allow_silent
@@ -1496,6 +1552,7 @@ def inspect_voice(
     if proc.returncode != 0:
         raise RuntimeError(f"voice RMS analysis failed: {proc.stderr.strip()}")
 
+    first_active_start: float | None = None
     last_active_end: float | None = None
     current_pts_time: float | None = None
     bins_analyzed = 0
@@ -1510,11 +1567,82 @@ def inspect_voice(
             bins_analyzed += 1
             rms_val = _parse_finite_float(rms_m.group(1))
             if rms_val is not None and rms_val > VOICE_RMS_ACTIVE_DB:
+                if first_active_start is None:
+                    first_active_start = round(current_pts_time, 3)
                 last_active_end = round(current_pts_time + 0.1, 3)
 
+    speech_start = first_active_start if first_active_start is not None else 0.0
     speech_end = last_active_end if last_active_end is not None else 0.0
     min_allowed = round(window - min_margin_low, 3)
     max_allowed = round(window - min_margin_high, 3)
+
+    # Detect internal speech pauses >= 0.35s for dialogue cadence diagnostics
+    internal_pauses: list[dict[str, float]] = []
+    if first_active_start is not None and last_active_end is not None:
+        sil_proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "info",
+                "-i",
+                str(audio_path),
+                "-vn",
+                "-af",
+                "silencedetect=noise=-38dB:d=0.35",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        cur_sil_start: float | None = None
+        for line in sil_proc.stderr.splitlines():
+            m_st = re.search(r"silence_start:\s*([0-9.]+)", line)
+            if m_st:
+                cur_sil_start = float(m_st.group(1))
+                continue
+            m_end = re.search(r"silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)", line)
+            if m_end:
+                s_end = float(m_end.group(1))
+                s_dur = float(m_end.group(2))
+                s_start = cur_sil_start if cur_sil_start is not None else max(0.0, s_end - s_dur)
+                cur_sil_start = None
+                if s_start > (speech_start + 0.05) and s_end < (speech_end - 0.05):
+                    internal_pauses.append(
+                        {
+                            "start": round(s_start, 3),
+                            "end": round(s_end, 3),
+                            "duration": round(s_dur, 3),
+                        }
+                    )
+        if speech_start >= 0.25:
+            warnings.append(
+                {
+                    "code": "leading_silence",
+                    "speech_start": speech_start,
+                    "message": (
+                        f"leading silence before speech ({speech_start}s >= 0.25s); "
+                        "set audio.voiceover.tracks[].trim_start_s or tighten start_s to avoid dead air at cut"
+                    ),
+                }
+            )
+        long_pauses = [p for p in internal_pauses if p["duration"] >= 0.45]
+        if long_pauses:
+            max_p = max(p["duration"] for p in long_pauses)
+            warnings.append(
+                {
+                    "code": "long_internal_pause",
+                    "max_pause_s": max_p,
+                    "count": len(long_pauses),
+                    "pauses": long_pauses,
+                    "message": (
+                        f"{len(long_pauses)} internal TTS pause(s) >= 0.45s (max {max_p}s); "
+                        "for tight Shorts/dialogue cadence, tighten punctuation/script or ensure speaker turn gaps stay crisp"
+                    ),
+                }
+            )
 
     if last_active_end is None:
         errors.append(
@@ -1558,7 +1686,9 @@ def inspect_voice(
         "window": window,
         "min_allowed": min_allowed,
         "max_allowed": max_allowed,
+        "speech_start": speech_start,
         "speech_end": speech_end,
+        "internal_pauses": internal_pauses,
         "bins_analyzed": bins_analyzed,
         "loudness": loudness,
         "warnings": warnings,
@@ -1993,6 +2123,8 @@ def _print_human(report: dict[str, Any]) -> None:
             print(f"  Contact sheet: {report['sheet']}")
         if report.get("crops"):
             print(f"  1:1 crop strip: {report['crops']}")
+        if report.get("verify_slices"):
+            print(f"  Verify slices ({len(report['verify_slices'])}): {', '.join(report['verify_slices'])}")
     elif cmd == "batch":
         base = report.get("baseline") or {}
         print(
@@ -2116,6 +2248,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="thirds",
         help="Horizontal crop framing for --crops (default: thirds = left/center/right sweep).",
     )
+    rn.add_argument(
+        "--verify-slices-dir",
+        default=None,
+        help="Optional output directory to stream-copy masters > --slice-seconds into part_XX.mp4 slices for fast reviewer-agent playback.",
+    )
+    rn.add_argument(
+        "--slice-seconds",
+        type=float,
+        default=20.0,
+        help="Max duration per verify slice in seconds when --verify-slices-dir is set (default: 20.0).",
+    )
     rn.add_argument("--target-lufs", type=float, default=-14.0, help="Target integrated LUFS (default: -14.0).")
     rn.add_argument("--lufs-tolerance", type=float, default=1.0, help="Allowed +/- LUFS tolerance (default: 1.0).")
     rn.add_argument("--max-true-peak", type=float, default=-1.0, help="Strict max true peak dBTP ceiling (default: -1.0).")
@@ -2221,7 +2364,7 @@ def build_parser() -> argparse.ArgumentParser:
     lr.add_argument("--reopen-owner", default="none", help="Reopen owner (Worker(<id>), Root Producer, or none).")
     lr.add_argument("--summary", default="", help="Concise factual impact / findings note.")
     lr.add_argument("--qa-report", default=None, help="Path to qa_media.py JSON report (required for R4/R5 PASS).")
-    lr.add_argument("--sheet", default=None, help="Optional path to inspected contact sheet/grid.")
+    lr.add_argument("--sheet", default=None, help="Path to inspected 3x2 contact sheet/grid (required for R4/R5 PASS).")
     lr.add_argument("--crops", default=None, help="Path to inspected 1:1 crop strip (required for R5 PASS).")
     lr.add_argument("--reviewer-id", default=None, help="Optional fresh reviewer-agent conversation/lane ID.")
     lr.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON confirmation.")
@@ -2284,6 +2427,10 @@ def append_review_log(
         if _resolve_proof(qa_report) is None:
             raise ValueError(
                 f"REVIEW_HANDOFF_INVALID: {round_name} PASS requires --qa-report pointing to an existing qa_media.py JSON file"
+            )
+        if _resolve_proof(sheet) is None:
+            raise ValueError(
+                f"REVIEW_HANDOFF_INVALID: {round_name} PASS requires --sheet pointing to an existing 3x2 contact sheet PNG"
             )
     if verdict == "PASS" and round_name == "R5":
         if _resolve_proof(crops) is None:
@@ -2539,6 +2686,8 @@ def main(argv: list[str] | None = None) -> int:
                 sheet_path=Path(args.sheet) if args.sheet else None,
                 crops_path=Path(args.crops) if args.crops else None,
                 crop_focus=args.crop_focus,
+                verify_slices_dir=Path(args.verify_slices_dir) if args.verify_slices_dir else None,
+                slice_seconds=args.slice_seconds,
                 target_lufs=args.target_lufs,
                 lufs_tolerance=args.lufs_tolerance,
                 max_true_peak=args.max_true_peak,
@@ -2549,7 +2698,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip_loudness_check=args.no_loudness_check,
                 strict=args.strict,
             )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         if args.as_json:
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
         else:

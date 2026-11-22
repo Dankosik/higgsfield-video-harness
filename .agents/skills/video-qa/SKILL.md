@@ -22,24 +22,28 @@ Always pass `--json` when capturing reports for `reviewer-agent` handoffs
 - `scripts/qa_media.py clip <mp4> --sheet <png> [--crops <png>] [--crop-focus thirds|center|left|right] --json` (`make qa-clip`) — probes resolution, FPS, codec, duration, `video_bitrate_kbps`, `hf_edge_energy` (Laplacian sharpness proxy), audio, black gaps (`>= 0.5s`), `frozen_tail`, `fully_static_clip`, full-FPS **temporal stutter & motion-jerk telemetry** (`duplicate_frame_ratio`, `stutter_events`, `motion_jerk_spikes`), warns on `non_standard_dimensions` (`1918×1080`) and `low_video_bitrate`, writes a `3x2` contact sheet, and—when `--crops` is passed—writes an **unscaled `1:1` native-pixel 3-frame crop strip** (default `thirds` sweeps left/center/right).
 - `scripts/qa_media.py batch <clip1> <clip2> ... [--strict] --json` (`make qa-batch`) — audits cross-shot resolution, FPS, non-multiple-of-4 dimensions, low `1080p` bitrate, `hf_sharpness_outlier` (`> 1.5×` clean median), **`inter_shot_luma_jump`** (`> 95` exposure jump across cuts), and **`bitrate_disparity`** (`> 4.0×` starved draft next to flagship) before `make assemble`.
 - `scripts/qa_media.py pixel-diff <processed.mp4> --plate <source.mp4> [--windows "2-7,12-17"] [--tolerance 3.5] --json` (`make qa-pixel-diff`) — verifies untouched pass-through frames outside active VFX/V2V windows match the source plate (catches silent AE/FFmpeg color-management darkening).
-- `scripts/qa_media.py voice <wav> --window <sec> --json` (`make qa-voice`) — checks 100ms RMS active speech bounds against the target window.
-- `scripts/qa_media.py render <mp4> --sheet <png> [--crops <png>] --json` (`make qa-render`) — enforces `-14 LUFS (±1.0 LU)` and `<= -1.0 dBTP` on `draft_cut.mp4` / `master.mp4`.
+- `scripts/qa_media.py voice <wav> --window <sec> --json` (`make qa-voice`) — checks 100ms RMS active speech bounds (`speech_start`, `speech_end`) against the target window and flags `leading_silence` (`>= 0.25s`) or `long_internal_pause` (`>= 0.45s`) for dialogue cadence tuning.
+- `scripts/qa_media.py render <mp4> --sheet <png> [--crops <png>] [--verify-slices-dir <dir>] --json` (`make qa-render`) — enforces `-14 LUFS (±1.0 LU)` and `<= -1.0 dBTP` on `draft_cut.mp4` / `master.mp4`, and (when `--verify-slices-dir` is passed on masters `> 20s`) stream-copies `<= 20s` `part_XX.mp4` slices for fast `reviewer-agent` playback.
 - `make lookbook FILES="..." OUT=<png> LABELS="A,B,C"` — burns visual badges onto tiles for `R2` Lookbooks and `R3` stills strips.
 - `scripts/qa_media.py slice <sheet.png> --out-dir <dir> --rows 3 --cols 3 [--trim 4] --json` (`make slice-grid`) — splits `2x2`/`3x3` multi-angle sheets (`nano_banana_2_shots`) into standalone PNG tiles before upload.
-- `scripts/qa_media.py log-review --campaign <dir> --round <R> --asset <id> --verdict <PASS|CONCERNS|FAIL|REVIEW_HANDOFF_INVALID> [--defect-class <CLASS>] [--qa-report <json>] [--crops <png>] [--reviewer-id <id>] [--summary "..."] --json` — appends every `#review-result` to `campaigns/<slug>/qc/review-log.jsonl` under `flock`. **Fail-closed:** `R4`/`R4A`/`R4B`/`R5` `PASS` is mechanically rejected unless `--qa-report` points to an existing JSON report (and `--crops` points to an existing `1:1` PNG for `R5`).
+- `scripts/qa_media.py log-review --campaign <dir> --round <R> --asset <id> --verdict <PASS|CONCERNS|FAIL|REVIEW_HANDOFF_INVALID> [--defect-class <CLASS>] [--qa-report <json>] [--sheet <png>] [--crops <png>] [--reviewer-id <id>] [--summary "..."] --json` — appends every `#review-result` to `campaigns/<slug>/qc/review-log.jsonl` under `flock`. **Fail-closed:** `R4`/`R4A`/`R4B`/`R5` `PASS` is mechanically rejected unless both `--qa-report` and `--sheet` point to existing files (plus `--crops` pointing to an existing `1:1` PNG for `R5`).
 
-## Mandatory Direct MP4 Playback, `1:1` Inspection & Binary QC Rubric
+## Mandatory Direct MP4 Playback, Fast Turn Budget & Binary QC Rubric
 
 Shrunk `480px` `3x2` sheets hide 94% of a clip's frames (micro-stutters,
 warping limbs, popping logos, and bad dissolves) as well as halos and face melt.
 Every `R4`/`R5` video review MUST be executed by a **fresh `reviewer-agent`
-lane** (never self-graded by Root Producer) that inspects: (1) `qa_media.py`
-JSON (`temporal_stutter`, `motion_jerk`, `inter_shot_luma_jump`,
+lane** (never self-graded by Root Producer) within a **fast bounded budget
+(`<= 12` tool calls, batching text/JSON/PNGs up to 5–6 per turn and reading
+at most 2 `.mp4` files per turn to avoid context compaction; zero ad-hoc
+shell/Python slicing scripts)** that inspects: (1) `qa_media.py` JSON
+(`temporal_stutter`, `motion_jerk`, `inter_shot_luma_jump`,
 `bitrate_disparity`), (2) **actual `.mp4` playback via `read_file`** on hero
-clips and assembled cuts, (3) `1:1` `--crops` strips + `batch --strict --json`
-for every `R5` or upscaled handoff, and (4) the **6-point brief/mobile audit**
-(product/place accuracy, zero stray logos/garbled lettering, offer/copy accuracy,
-phone-size readability, safe framing, cut-to-cut continuity):
+clips and pre-sliced `<= 20s` `qc/verify_slices/part_*.mp4` master segments,
+(3) `1:1` `--crops` strips + `batch --strict --json` for every `R5` or upscaled
+handoff, and (4) the **6-point brief/mobile audit** (product/place accuracy,
+zero stray logos/garbled lettering, offer/copy accuracy, phone-size
+readability, safe framing, cut-to-cut continuity):
 
 | Observed Signal (JSON or `1:1` `--crops`) | Verdict | Defect Class | `reopen_owner` & Required Action |
 | :--- | :--- | :--- | :--- |
@@ -57,6 +61,9 @@ phone-size readability, safe framing, cut-to-cut continuity):
 | Mid-clip face likeness softens on an otherwise golden acting take | `FAIL` | `VISUAL_DRIFT_DEFECT` | `Root Producer` — rescue surgically via `kling4_0 --mode video-edit` (bound to canonical `R2A` portrait) or Web Face Swap (keep performance) |
 | Cold `R3`/`R4B` Blind Viewer Read triggers `Primary Misread Risk`, or a proof-bearing object fails `0.1s` instant recognition / referent cohesion | `FAIL` | `NARRATIVE_DEFECT` | `Root Producer` / `Worker(<asset_id>)` — replace ambiguous object silhouette or strengthen misread-foreclosing beat before animating ([Narrative Diagnostics](../video-narrative/references/narrative-diagnostics.md#symptom-to-fix-table)) |
 | Shot fails the Deletion Test (zero-delta filler repeating an adjacent beat), breaks `BUT / THEREFORE` causality, over-explains (`2 + 2`), or breaks `Narrative Voice` | `FAIL` / `CONCERNS` | `NARRATIVE_DEFECT` | `Root Producer` — cut filler shot, restore `[PAUSE Ns]` / audio counterpoint, or align copy to `Narrative Lock` ([Narrative Diagnostics](../video-narrative/references/narrative-diagnostics.md#symptom-to-fix-table)) |
+| Visible on-camera speaker's mouth flaps noticeably out of sync with VO, OR a silent/non-speaking character accidentally moves its mouth while another character or off-screen narrator speaks *(naturally silent closed-mouth characters under off-screen VO are valid)* | `FAIL` | `MEDIA_TECH_DEFECT` | `Root Producer` — for visible on-camera dialogue use audio-driven lip-sync (`intone` / Lipsync Studio / native-speech engine); for off-screen VO or listeners, explicitly direct closed-mouth silent expressions |
+| Subtitle wall (`> 2` short lines / `> 7` words frozen `> 3.5s`), paraphrased captions contradicting spoken audio, or mispronounced VO inverting meaning | `FAIL` | `NARRATIVE_DEFECT` | `Root Producer` — split into verbatim `2–6` word cues turning every `1.0–2.5s` synced to actual audio timestamps; regenerate broken VO line (never ship an inverted joke) |
+| Static `> 8s` single-camera shot causing pacing fatigue, warped hands/paws/held props, crawling background lines, or visible bridge jump-cut seam | `FAIL` | `VISUAL_DRIFT_DEFECT` | `Root Producer` / `Worker(<asset_id>)` — break into `3–6s` cuts/angles/reaction inserts or `4K` 2× punch-ins; never stretch `4–5` stills across `60s` |
 
 ## Four Audit Pillars & Root-Cause Escalation
 

@@ -16,12 +16,25 @@ Execute pre-Dailies QC in four steps with zero builder rationale (never self-gra
    required artifact is missing, stop and return `REVIEW_HANDOFF_INVALID`.
 2. Inspect every candidate image, contact sheet, and `1:1` `--crops` strip via
    vision tools, AND watch actual `.mp4` playback via `read_file` on video clips
-   (and assembled cuts) so temporal stutters, micro-freezes, warping limbs,
-   popping logos, and ugly dissolves are never missed by 6-frame sheets.
-3. Score strictly against the binary rubric, four audit pillars (including the
-   `R3`/`R4B` Blind Viewer Read against `Narrative Lock` in
-   `.agents/skills/video-narrative/SKILL.md` to filter `NARRATIVE_DEFECT`s),
+   (and pre-sliced `<= 20s` `qc/verify_slices/part_*.mp4` segments from
+   `qa_media.py render --verify-slices-dir` for masters `> 20s` — never load
+   raw `> 25 MB` masters directly) so temporal stutters, micro-freezes, warping
+   limbs, popping logos, and ugly dissolves are never missed by 6-frame sheets.
+3. Stay fast and bounded (`<= 12` tool calls total): batch text/JSON/PNG reads
+   (up to 5–6 per turn), but read **at most 2 `.mp4` files per turn** so video
+   tokens never trigger context compaction or force re-reads. NEVER run ad-hoc
+   `ls`, `ffprobe`, or custom Python frame-dump/amplitude scripts when
+   `qa_media.py` JSON, sheets, crops, and video slices are already provided.
+4. Score strictly as a demanding viewer — NOT just a technical checkbox — against
+   the binary rubric, four audit pillars (including the `R3`/`R4B` Blind Viewer
+   Read against `Narrative Lock` in `.agents/skills/video-narrative/SKILL.md`),
    temporal stutter/jerk telemetry, cross-cut luma/bitrate checks, and 6-point
-   brief/mobile checklist in `.agents/skills/video-qa/SKILL.md`.
-4. Leave creative picks and `LOCKED` sign-off solely to the Director.
+   brief/mobile checklist in `.agents/skills/video-qa/SKILL.md`. Hard-`FAIL`
+   visible out-of-sync lip flapping or a non-speaking character accidentally
+   moving its mouth (silent closed-mouth characters under off-screen VO are
+   totally valid!), caption walls (`> 7` words / `> 3.5s` static) or
+   audio-vs-caption mismatches (including meaning-inverting mispronunciations),
+   static `> 8s` single-shot fatigue, warped hands/paws/props, or visible
+   jump-cut bridge seams.
+5. Leave creative picks and `LOCKED` sign-off solely to the Director.
 """

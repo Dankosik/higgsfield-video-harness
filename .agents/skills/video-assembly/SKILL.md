@@ -51,11 +51,23 @@ before spending video credits.
   `assemble.sh` (`libx264 -crf 18 -pix_fmt yuv420p -g 30`, `aac 192k 48kHz
   stereo`) rather than `-c copy` concat to prevent cut freezes and A/V desync.
 
-## VO Timing, Audio Level Law, Sidechain Ducking & `-14 LUFS` Mastering
+## VO Timing, Dialogue Cadence, Audio Level Law & `-14 LUFS` Mastering
 
-- Measure VO bounds with `scripts/qa_media.py voice <wav> --window <sec> --json`
-  (`make qa-voice`); when speech overflows its window, rewrite copy and
-  regenerate instead of speeding up with `atempo`.
+- Measure VO bounds and cadence with `scripts/qa_media.py voice <wav> --window
+  <sec> --json` (`make qa-voice`); when speech overflows its window, rewrite
+  copy and regenerate instead of speeding up with `atempo`.
+- **Dialogue Cadence & Turn-Taking Rules (avoid robotic gaps):**
+  - Check `speech_start` and `internal_pauses` in `qa_media.py voice`: shave
+    dead leading/trailing TTS silence (`>= 0.25s`) via
+    `audio.voiceover.tracks[].trim_start_s` / `trim_end_s` in `shotlist.json`,
+    and tighten punctuation or regenerate when mid-sentence TTS pauses exceed
+    `0.40s` in fast-paced Shorts/comedy.
+  - Never add a uniform mechanical `+0.15s` delay after every visual cut (which
+    compounds with trailing WAV tails into stiff `0.30s+` speaker gaps shorter
+    than mid-sentence breaths): use crisp `0.00–0.12s` handoffs or `-0.10` to
+    `-0.20s` **J-cut audio lead-ins** (supported natively via overlapping
+    `start_s` in `audio.voiceover.tracks[]`) for punchy dialogue, reserving
+    `0.35–0.65s` silences strictly for intentional dramatic or comedic beats.
 - Enforce the **Audio Level Law**: VO at `1.0` (`0 dB`), diegetic SFX `<= 0.20`,
   music `<= 0.16` under VO (`<= 0.35` music-only). Pass `DUCK_MUSIC=1`
   (`--duck-music`) to gently sidechain-duck the music bed whenever VO speaks.
@@ -69,15 +81,18 @@ before spending video credits.
 - **Finishing unification:** When blending native `1080p` footage across engines
   or polishing a theatrical cut, balance per-shot `shots[].edit.grade`, then
   apply a shared 3D LUT and subtle temporal 35mm grain directly at `0 cr.` via
-  `make assemble CAMPAIGN=<slug> LUT=<grade.cube> GRAIN=4 [OVERLAY=<endcard.mov>] [DUCK_MUSIC=1]`,
+  `make assemble CAMPAIGN=<slug> LUT=<grade.cube> GRAIN=4 [OVERLAY=campaigns/<slug>/media/work/overlay.mov] [DUCK_MUSIC=1]`,
   OR grade exported `stems/` in DaVinci Resolve (optionally expanding
   `1920×1080` clips via `topaz_hyperion_2_5` 10-bit ProRes/EXR first; see
   [Mastering & Upscaling](../higgsfield-cli/references/mastering-and-upscaling.md)).
-- **FFmpeg vs. Remotion/AE:** Stay on pure FFmpeg by default; cross into
+- **FFmpeg vs. Remotion/AE & Temp-File Hygiene:** Stay on pure FFmpeg by
+  default; cross into
   [`hybrid-motion-graphics`](../hybrid-motion-graphics/SKILL.md) (Remotion /
   After Effects / HTML Design Sheet) when `brief.md` requires animated kinetic
-  typography, captions, or crisp brand UI overlays, compositing transparent
-  `1080p` ProRes 4444 overlays **after** LUT/grain via `--overlay`.
+  typography, captions, or crisp brand UI overlays. Always write intermediate
+  `1080p` ProRes 4444 overlays (`overlay.mov`) into **`media/work/`** (never
+  `media/exports/`) so gigabyte temp renders stay separate from final client
+  deliverables, and composite **after** LUT/grain via `--overlay`.
 
 *Done when:* `animatic.mp4` (`R3`), `draft_cut.mp4` (`R4B`), or `master.mp4` +
 `stems/` (`R5`) builds cleanly with uniform FPS/resolution, VO fits without

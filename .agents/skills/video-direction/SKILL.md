@@ -81,14 +81,25 @@ Load only the reference needed for the current task:
      modular `PARAMS {}`, `HEX` palette, `LOCK MANIFEST`, optional `中文强制锁定`
      (`references/seedance-spec-case-study.md`).
   *(Use JSON only as an internal pipeline checklist, never as raw video-model syntax.)*
-- **Native audio, anti-subtitle dialogue & read-aloud budget:** Tie every sound
-  to a visible source + room tone, and end every non-UGC video prompt with the
-  literal line `"NO MUSIC. NO BACKGROUND SCORE. Native diegetic sound only."`.
-  For native spoken dialogue, use colon syntax (`Character says in natural
-  Russian, low calm voice: ...`) + `No subtitles, no captions, no on-screen text.`.
-  Enforce `ad-script`'s **read-aloud budget** ([Ad Craft Glossary](../../../docs/ad-craft-glossary.md):
-  `<= 2.0 wps` Russian, `<= 2.3 wps` English after subtracting `[PAUSE Ns]`)
-  and spell brand names phonetically in VO prompts.
+- **Native audio, smart lip-sync vs. off-screen VO routing, anti-subtitle dialogue & read-aloud budget:**
+  Tie every sound to a visible source + room tone, and end every non-UGC video
+  prompt with the literal line `"NO MUSIC. NO BACKGROUND SCORE. Native diegetic
+  sound only."`. Match mouth direction to the shot's audio mode:
+  1. **Silent character under off-screen VO / narrator / inner monologue / B-roll:**
+     silent I2V (`--sound off`) is completely valid—explicitly direct natural
+     non-speaking expressions (*mouth closed, listening, smiling, reacting, zero
+     accidental talking or jaw movement*).
+  2. **Visible on-camera speaker (`MCU`/`CU` delivering the line directly):**
+     avoid pasting external VO onto silent un-synced jaw-flapping—route to
+     audio-driven lip-sync (`intone` / Lipsync Studio) or native in-model speech
+     (`Character says in natural Russian, low calm voice: ...` + `No subtitles,
+     no captions, no on-screen text.`).
+  3. **Multi-character shots:** explicitly keep the **silent listener's mouth
+     closed** so the wrong character never moves its mouth while another speaks.
+  Enforce `ad-script`'s **read-aloud budget**
+  ([Ad Craft Glossary](../../../docs/ad-craft-glossary.md): `<= 2.0 wps`
+  Russian, `<= 2.3 wps` English after subtracting `[PAUSE Ns]`) and spell brand
+  names phonetically in VO prompts.
 - **Anti-IP, typography & One Variable Per Re-roll:** Decompose IP/brands/directors
   into raw materials, silhouette, geometry, and light. Composite fine typography
   and UI in post. On `ITERATING` retries (`v1 -> v2`), change **one failing axis

@@ -294,7 +294,7 @@ if isinstance(audio, dict):
                 parsed_tracks = []
                 for tr in tracks:
                     if isinstance(tr, str) and tr.strip():
-                        parsed_tracks.append((resolve_rel(tr.strip()), None))
+                        parsed_tracks.append((resolve_rel(tr.strip()), None, None, None))
                     elif isinstance(tr, dict):
                         fpath = tr.get("selected_file") or tr.get("file") or tr.get("path")
                         if isinstance(fpath, str) and fpath.strip():
@@ -303,27 +303,40 @@ if isinstance(audio, dict):
                                 start = tr.get("offset_s")
                             if start is None:
                                 start = parse_window_start(tr.get("window_s"))
-                            parsed_tracks.append((resolve_rel(fpath.strip()), start))
+                            t_in = tr.get("trim_start_s")
+                            t_out = tr.get("trim_end_s")
+                            parsed_tracks.append((resolve_rel(fpath.strip()), start, t_in, t_out))
                 if parsed_tracks:
-                    for tp, _ in parsed_tracks:
+                    for tp, _, _, _ in parsed_tracks:
                         if not tp.is_file():
                             print(f"ERROR: manifest voiceover track not found: {tp}", file=sys.stderr)
                             sys.exit(2)
-                    if len(parsed_tracks) == 1 and parsed_tracks[0][1] is None:
+                    has_trims = any((ti is not None or to is not None) for _, _, ti, to in parsed_tracks)
+                    if len(parsed_tracks) == 1 and parsed_tracks[0][1] is None and not has_trims:
                         resolved_vo = str(parsed_tracks[0][0])
                     else:
                         combined_vo = workdir / "manifest_vo.wav"
-                        has_offsets = any(st is not None for _, st in parsed_tracks)
+                        has_offsets = any(st is not None for _, st, _, _ in parsed_tracks)
                         cmd = ["ffmpeg", "-v", "error", "-y"]
-                        for tp, _ in parsed_tracks:
+                        for tp, _, _, _ in parsed_tracks:
                             cmd.extend(["-i", str(tp)])
+
+                        def _trim_prefix(t_in, t_out):
+                            opts = []
+                            if t_in is not None:
+                                opts.append(f"start={float(t_in):.3f}")
+                            if t_out is not None:
+                                opts.append(f"end={float(t_out):.3f}")
+                            return f"atrim={':'.join(opts)},asetpts=PTS-STARTPTS," if opts else ""
+
                         if has_offsets:
                             parts = []
                             labels = []
-                            for idx, (_, st) in enumerate(parsed_tracks):
+                            for idx, (_, st, t_in, t_out) in enumerate(parsed_tracks):
                                 delay_ms = max(0, int(round(float(st or 0.0) * 1000.0)))
+                                tpfx = _trim_prefix(t_in, t_out)
                                 parts.append(
-                                    f"[{idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                                    f"[{idx}:a]{tpfx}aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
                                     f"adelay={delay_ms}|{delay_ms}[v{idx}]"
                                 )
                                 labels.append(f"[v{idx}]")
@@ -331,9 +344,10 @@ if isinstance(audio, dict):
                         else:
                             parts = []
                             labels = []
-                            for idx in range(len(parsed_tracks)):
+                            for idx, (_, _, t_in, t_out) in enumerate(parsed_tracks):
+                                tpfx = _trim_prefix(t_in, t_out)
                                 parts.append(
-                                    f"[{idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[v{idx}]"
+                                    f"[{idx}:a]{tpfx}aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[v{idx}]"
                                 )
                                 labels.append(f"[v{idx}]")
                             fc = ";".join(parts) + f";{''.join(labels)}concat=n={len(parsed_tracks)}:v=0:a=1[vout]"

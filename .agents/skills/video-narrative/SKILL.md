@@ -56,6 +56,11 @@ Load only the reference needed for the current task:
   Apply the **Deletion Test** in `R1B` (`0 cr.`): if deleting shot `S0X` leaves
   the causal chain and emotional turn intact, cut it before generating stills or
   motion—never shoot transitional walks or duplicate beats that stall momentum.
+  Pair this with the **Shot-Density Law**: keep single-camera AI shots inside
+  **`2.5–6.0s`** (`10–18` distinct shots/angles for a `45–60s` Short; `6–10` for
+  a `30s` commercial) by adding reaction close-ups, reverse angles, or visual
+  proof cutaways—never stretch `4–5` static drawings into `11–15s` talking-head
+  loops.
 - **`0.1s` Instant-Read Semiotics & Referent Cohesion (`R2`–`R3`):** Every
   meaning-bearing object, gesture, and wardrobe cue must read unmistakably in
   `<= 0.1s` on mute and on mobile screens without text labels (canonical

@@ -35,7 +35,11 @@ stages need specialized craft **without** switching the main track:
 
 Sub-flow skills are loaded **only** on the specific shot or stage where they
 execute (zero token tax during unrelated rounds) and never alter the locked
-primary `production_track`.
+primary `production_track`. **Mandatory read before execution:** whenever a
+campaign declares any entry in `sub_flows[]` (`brief.md` / `shotlist.json`),
+the actor owning that stage MUST read that sub-flow's owning `SKILL.md` before
+authoring, coding, or rendering it (e.g. read `hybrid-motion-graphics/SKILL.md`
+before building `remotion_overlays`).
 
 ## Sticky Track Lock & Zero Re-Asking Contract
 

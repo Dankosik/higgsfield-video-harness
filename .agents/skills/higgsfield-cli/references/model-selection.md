@@ -66,10 +66,15 @@ generations without violating anti-bot boundaries:
    `qa_media.py log-review`), record the selected file in `shotlist.json`, and
    upload approved stills/lookbook winners via `hf_guard.py upload --round <R>`
    (`0 cr.`) so downstream shots stay UUID-locked.
-5. **Fallback trigger:** Only if `Unlimited` is confirmed unavailable for the
-   needed model, queue wait stalls the round, or the Director explicitly asks to
-   spend CLI credits for speed, quote live CLI costs and fall back cleanly to
-   Priority 2/3 via `hf_guard.py run`.
+5. **Fallback trigger & image-only Unlimited caching:** Some `Ultra`
+   subscriptions include **`Unlimited (0 cr.)` for images only** (toggling
+   video `Unlimited` redirects to `/market#image-unlimited`). Verify video
+   `Unlimited` availability **once per campaign session**; if video Unlimited
+   redirects or is unavailable for the needed model, cache that truth for the
+   session (stop re-probing video Unlimited), quote live CLI costs, and fall
+   back cleanly to Priority 2/3 via `hf_guard.py run`. Also fall back if queue
+   wait stalls the round or the Director explicitly asks to spend CLI credits
+   for speed.
 
 *Done when:* asset is saved under `campaigns/<slug>/media/`, passes internal
 QC, and (if used as a downstream reference) is uploaded via `hf_guard.py upload`.
@@ -106,6 +111,7 @@ Based on Artificial Analysis Video Arena (I2V/T2V Elo) and live CLI pricing
 | :--- | ---: | :--- | :--- | :--- |
 | `seedance_2_0_mini` (`480p` / `720p`) | `2.5 cr.` (`4s` = `2 cr.`) / **`5 cr.`** | `start_image`, `end_image`, `image_references` | Fast lightweight Seedance motion | **Default `R4` economy `720p` draft** (3× cheaper than `480p` CS 4.0) to prove rhythm, camera move & edit cut |
 | `kling_4_0_flash` (`720p`) | **`7.5 cr.`** | Up to 10 images + `video_references` (`video-edit`, `reference-to-video`) | Fast multi-ref Kling 4.0 choreography | **Default `R4` `720p` draft** before native `1080p` `kling4_0` mastering |
+| `kling3_0` (`--mode pro --sound off`, `1080p`) | **`8.75 cr.`** (`1.75 cr./s`, keep `<= 6s`) | `start_image` + opt. `end_image` | Crisp native `1080p` stylized motion at ultra-low cost | **Short (`3–6s`) silent-character / action / reaction / off-screen VO shots** for stylized 2D/3D/animal worlds *(direct natural closed-mouth expressions when silent under off-screen VO; for visible on-camera speaking faces where lip-sync matters, prefer `intone` / Lipsync Studio / native-speech models, and avoid `> 8s` single shots where paws/props warp)* |
 | `wan3_0` (`480p` / `720p` / `1080p`) | `5 cr.` / **`8.75 cr.`** / **`17.5 cr.`** | `start_image`+`end_image` OR `image_references` (mutually exclusive) | **Top Elo leader (~1175)**: natural fabric/light physics & subject stability | **Best value `720p` draft & cheapest native `1080p` master** for calm I2V takes *(verify FPS—may output 30fps)* |
 | `kling4_0` (`720p` / `1080p` / `4k`) | `12.5 cr.` / **`18.75 cr.`** (`video-edit` `22.5 cr.`) / `45 cr.` | Up to 10 images (`start`/`end` + `image_references`) + `video_references` + `--dynamic_range hdr` | Top motion stability, facial consistency, multi-ref control & native stereo | **Default value native `1080p` `R5` master** (4.3× cheaper than CS 4.0 `1080p`) and motion-locked `video-edit` rescue |
 | `veo3_1_lite` / `veo3_1` (`fast high` 4s / `preview`) | `12 cr.` / **`16 cr.`** (4s fast high) / `32 cr.` | `start_image` / T2V | **Benchmark leader for atmospheric light, DOF & cinema audio** | Moody single-subject atmospheric native `1080p` shots without heavy wardrobe ref stacks |

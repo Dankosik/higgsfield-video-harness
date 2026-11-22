@@ -83,9 +83,9 @@ qa-voice: ## Check VO duration window using 100ms RMS energy (FILE=<wav> WINDOW=
 	@test -n "$(FILE)" && test -n "$(WINDOW)" || { echo "qa-voice requires FILE=<audio> WINDOW=<sec>" >&2; exit 2; }
 	$(PYTHON) scripts/qa_media.py voice "$(FILE)" --window "$(WINDOW)"
 
-qa-render: ## Validate final assembled render loudness, black/frozen frames, sheet, and 1:1 crops (FILE=<mp4> [SHEET=<png>] [CROPS=<png>] [CROP_FOCUS=thirds|center|left|right])
+qa-render: ## Validate final assembled render loudness, black/frozen frames, sheet, 1:1 crops, and optional <=20s review slices (FILE=<mp4> [SHEET=<png>] [CROPS=<png>] [SLICES_DIR=<dir>])
 	@test -n "$(FILE)" || { echo "qa-render requires FILE=<path.mp4>" >&2; exit 2; }
-	$(PYTHON) scripts/qa_media.py render "$(FILE)" $(if $(SHEET),--sheet "$(SHEET)") $(if $(CROPS),--crops "$(CROPS)") $(if $(CROP_FOCUS),--crop-focus "$(CROP_FOCUS)")
+	$(PYTHON) scripts/qa_media.py render "$(FILE)" $(if $(SHEET),--sheet "$(SHEET)") $(if $(CROPS),--crops "$(CROPS)") $(if $(CROP_FOCUS),--crop-focus "$(CROP_FOCUS)") $(if $(SLICES_DIR),--verify-slices-dir "$(SLICES_DIR)")
 
 qa-pixel-diff: ## Verify untouched pass-through frames match source plate (FILE=<processed.mp4> PLATE=<source.mp4> [WINDOWS=2-7,12-17] [TOL=3.5])
 	@test -n "$(FILE)" && test -n "$(PLATE)" || { echo "qa-pixel-diff requires FILE=<processed.mp4> PLATE=<source.mp4>" >&2; exit 2; }
