@@ -28,7 +28,7 @@ Execute in strict round order. Never invent new walls, scales, or props inside `
 - *Done when:* `make campaign-check` passes with zero errors, every multi-angle/reverse/mirror set has a planned Reverse Wall, and every shot declares only visible refs.
 
 ### Step B — `R2A` Master Taste Lock (Unlimited-First)
-1. Follow [Model Selection](../../higgsfield-cli/references/model-selection.md): check **`higgsfield.ai` Web `Unlimited` (`0 cr.`)** first for multi-plate Asset Bibles; fall back to `soul_location` (`0.12 cr.`) / economy CLI drafts → hero `2k`/`4k` lock (`seedream_v5_pro` `2.5 cr.` workhorse, `seedream_5_5` `3.5 cr.`, `nano_banana_2_1`, `flux_3_image`).
+1. Follow [Model Selection](../../higgsfield-cli/references/model-selection.md): check **`higgsfield.ai` Web `Unlimited` (`0 cr.`)** first for multi-plate Asset Bibles; fall back to `soul_location` (`0.12 cr.`) / economy CLI drafts → hero `2k`/`4k` lock (`seedream_5_5` `1.5 cr.` `2k` / `2.5 cr.` `4k`, `nano_banana_2_1` `2 cr.` `2k` / `3 cr.` `4k`, `seedream_v5_pro` `2.5 cr.` at `2k` max, or `flux_3_image` `3 cr.` `2k`).
 2. Generate `A / B / C` variants of **Empty Masters** (zero people, zero stray clutter) and **`#808080` matte mid-gray Props** (`5000–5600K` soft diffused light, soft contact shadow). Keep invented characters isolated *without* hero props in `R2A`.
 3. Filter via fresh `reviewer-agent`, ship `Dailies 2`, upload approved winners via `hf_guard.py upload --round R2`, and set `status: "LOCKED"` + `approved_upload_id` in `shotlist.json`.
 - *Done when:* every primary location, building, prop, and cast Master is `LOCKED` with an `approved_upload_id`.
@@ -45,18 +45,18 @@ Execute in strict round order. Never invent new walls, scales, or props inside `
 ### Step D — `R3` Keyframe Assembly (`2k`/`4k` Stills)
 1. For each shot, bind **3–5 visible-only refs** (`1–2` matching location/wall plates + `1` cast + `1–2` visible props). Omit off-screen props and unused walls (**Visibility Pruning**).
 2. Write the still prompt using the **4-part `R3` template** in Section 3 (`[Camera + Facing Wall] + [Placement & Contact Shadow] + [Scale Ratio] + [Pigment Isolation]`).
-3. Render at **`2k` or `4k`** (`seedream_v5_pro`, `nano_banana_2_1`, `seedream_5_5`, `kling_image_4_0`), audit via `reviewer-agent` (check 4-wall geography, reflections, doorway thresholds, prop scale, and state), ship `Dailies 3` + `animatic.mp4`, lock approved stills, and upload via `hf_guard.py upload --round R3`.
+3. Render at **`2k` or `4k`** (`seedream_5_5`, `nano_banana_2_1`, `kling_image_4_0`, or `seedream_v5_pro` at `2k` max), audit via `reviewer-agent` (check 4-wall geography, reflections, doorway thresholds, prop scale, and state), ship `Dailies 3` + `animatic.mp4`, lock approved stills, and upload via `hf_guard.py upload --round R3`.
 - *Done when:* every shot's spatial geometry, scale, reflection, and lighting continuity is visibly proven in `LOCKED` `R3` stills before spending a single video credit.
 
 ### Step E — `R4 / R5` Delta Motion & Surgical Prop Rescue
-1. For each shot, bind **2–4 visible-only images**: `1` locked `R3` `--start_image` + `1–2` highest-risk canonical **`R2`** UUIDs (rotating prop or wall revealed by camera move) + optional `1` locked `R3` `--end_image`. Honor hard CEL rules (`wan3_0` forbids combining `start_image`/`end_image` with `image_references`; `flux_3_video` forbids mixing images with `video_references`).
+1. For each shot, bind **2–4 visible-only images**: `1` locked `R3` `--start_image` + `1–2` highest-risk canonical **`R2`** UUIDs (rotating prop or wall revealed by camera move) + optional `1` locked `R3` `--end_image`. Honor hard CEL rules (`wan3_0` / `wan3_0_prime` / `minimax_h3` forbid combining `start_image`/`end_image` with reference media; `flux_3_video` forbids mixing images with `video_references` — see [Live Workflows](../../higgsfield-cli/references/live-workflows.md)).
 2. **Canonical Source Law:** Never chain compressed video screenshots shot-over-shot (*photocopy cascade*). If bridging continuous action via `sNN.last_frame`, always include the original locked `R2` prop/location UUIDs in `--image_references`.
 3. Choose motion topology:
-   - **Standard cut-by-cut:** `seedance_2_5 --mode omni_reference` (`--draft true` → `--draft_job_id` + `--bitrate_mode high`) or `kling4_0` (`reference-to-video`).
-   - **2–4 cuts inside ONE room:** native multi-shot (`kling_o3_image_reference --multi_shots true --multi_prompt [...]`, `kling4_0`, or `seedance_2_5`).
+   - **Standard cut-by-cut:** `seedance_2_5 --mode omni_reference` (`--draft true` → `--draft_job_id` + `--bitrate_mode high`) or `kling4_0 --mode reference-to-video --duration 5` *(pass `--duration` explicitly; live default is `10s` = `37.5 cr.` at `1080p`)*.
+   - **2–4 cuts inside ONE room:** native CLI multi-shot (`kling_o3_image_reference --multi_shots true --multi_prompt [...]`) or timecoded `seedance_2_5` 2-shot blocks *(live `kling4_0` has no CLI `multi_shots`/`multi_prompt`)*.
    - **Unbroken camera continuation:** `--mode video_extension --extension_mode forward|backward` (`seedance_2_5` / `cinematic_studio_video_4_0`), or `--start_image` + `--end_image` when physically traversable in 5s with a true 3D verb (`Dolly`/`Truck`, never `Zoom`/`Pan`).
 4. Write a **delta-only** video prompt pairing every `@ImageN` tag with its concrete noun (never restate static room walls or prop appearance).
-5. **Surgical Prop Rescue:** If a take nails acting and camera motion but one prop drifts mid-clip, repair it with `hf_mult_replace_object` / `hf_mult_replace_object_flash` (Genjutsu) or `kling4_0 --mode video-edit` bound to the canonical `R2` prop plate instead of discarding the clip.
+5. **Surgical Prop Rescue:** If a take nails acting and camera motion but one prop drifts mid-clip, repair it with `hf_mult_replace_object_flash` (`12 cr.`, `1080p`-only), `hf_mult_replace_object` (`120 cr.`), or `kling4_0 --mode video-edit --duration 5` (`22.5 cr.`) bound to the canonical `R2` prop plate instead of discarding the clip.
 - *Done when:* `3x2` contact sheets (and `1:1` `--crops` on `R5`) pass `reviewer-agent` on start, middle, and end frames with zero 180° flips, scale jumps, prop morphing, or post-transition `xfade` band-aids.
 
 ## 3. Copy-Ready Templates
@@ -80,7 +80,7 @@ CAM: near South door facing North-West (35mm) | EYELINE: screen-left toward West
   { "id": "prop_kettle_scale", "kind": "prop_scale", "local_path": "media/references/kettle_in_hand.jpg", "upload_id": "<uuid>" }
 ],
 "lookbook": [
-  { "id": "loc_apt_master", "kind": "location", "variants_requested": 3, "status": "LOCKED", "approved_variant": "A", "approved_upload_id": "<master_uuid>", "estimated_credits": 10.5 },
+  { "id": "loc_apt_master", "kind": "location", "variants_requested": 3, "status": "LOCKED", "approved_variant": "A", "approved_upload_id": "<master_uuid>", "estimated_credits": 4.5 },
   { "id": "loc_apt_reverse", "kind": "location", "variants_requested": 1, "status": "LOCKED", "approved_variant": "A", "approved_upload_id": "<reverse_uuid>", "estimated_credits": 2.5 },
   { "id": "loc_apt_night", "kind": "location", "variants_requested": 1, "status": "LOCKED", "approved_variant": "A", "approved_upload_id": "<night_uuid>", "estimated_credits": 1.5 },
   { "id": "prop_kettle_hero", "kind": "object", "variants_requested": 3, "status": "LOCKED", "approved_variant": "B", "approved_upload_id": "<prop_uuid>", "estimated_credits": 6.0 }
@@ -112,25 +112,26 @@ CAM: near South door facing North-West (35mm) | EYELINE: screen-left toward West
 
 ## 5. Reference Budgets & Higgsfield Tool Routing
 
-Exceeding optimal counts triggers **attention dilution**, **attribute bleed**, and **rigid stagnation**. `make campaign-check` mechanically enforces hard CEL limits (errors) and flags optimal-budget or photocopy violations (warnings).
+Exceeding optimal counts triggers **attention dilution**, **attribute bleed**, and **rigid stagnation**. `make campaign-check` mechanically enforces hard CEL limits (errors) and flags optimal-budget or photocopy violations (warnings). For canonical full pricing and CEL recipes, see [`higgsfield-cli`](../../higgsfield-cli/SKILL.md) ([Model Selection](../../higgsfield-cli/references/model-selection.md) & [Live Workflows](../../higgsfield-cli/references/live-workflows.md)).
 
 ### Live Higgsfield Limits vs. Optimal Count
 
 | Stage / Model (`job_type`) | Hard CLI Limit (CEL) | **Optimal Count** | Key Constraint |
 | :--- | :--- | :--- | :--- |
 | **Image (`R3`)** | | | |
-| `nano_banana_pro` / `nano_banana_2_1` | `<= 14` (`<= 13` + mask) | **3–5** (max 6) | Top spatial reasoning & multi-ref blending; render at **`2k`/`4k`** |
-| `seedream_v5_pro` / `seedream_5_5` | `<= 10` | **3–5** | `v5_pro` (`2.5 cr.`) workhorse orthographic bibles & `2k` keyframes; `5_5` (`3.5 cr.`) flagship fabric/macro close-ups |
-| `kling_image_4_0` / `kling_omni_image` | `<= 10` (incl. `kling_element_ids`) | **3–5** | Strong storyboard staging (`2k`–`4k`) |
+| `nano_banana_pro` / `nano_banana_2_1` | `<= 14` (`<= 13` + mask) | **3–5** (max 6) | Top spatial reasoning & multi-ref blending; render at **`2k`/`4k`** (`2_1`: `2`/`3 cr.`, `pro`: `2`/`4 cr.`) |
+| `seedream_5_5` / `seedream_v5_pro` | `<= 10` | **3–5** | `seedream_5_5` (`1.5 cr.` `2k` / `2.5 cr.` `4k`) flagship bibles & keyframes; `seedream_v5_pro` (`2.5 cr.`, caps at `2k`) |
+| `kling_image_4_0` / `kling_omni_image` | `<= 10` (`kling_image_4_0` incl. `kling_element_ids`) | **3–5** | Strong storyboard staging (`kling_image_4_0` `2k`–`8k`; `kling_omni_image` `1k`–`2k`) |
 | `gpt_image_2_6` | `image_references[]` | **2–4** | Strong mirror/spatial logic (check photoreal taste) |
 | `flux_kontext` | `<= 4` | **1–2** | Single-step edits, reverse walls & state shifts (`1.5 cr.`) |
 | `3d_jutsu_angles` | `<= 10` | **1–3** | Dedicated 3D angle re-projection at `2k` (`2.5 cr.`) |
 | `nano_banana_2_shots` / `outpaint` / `flux_2_pro_outpaint` / `image_background_remover` / `image_decompose` | **Exactly `1`** | **1** | Accept **no `--prompt`**; quote `generate cost` only with an uploaded UUID |
 | **Video (`R4`/`R5`)** | | | |
-| `seedance_2_5` / `cinematic_studio_video_4_0` (`omni_reference`) | `<= 30` imgs (`<= 50` media) | **2–4** (max 5: `start` + 1–3 refs + opt. `end`) | `> 5` images trigger bleed & stiff motion; pass `--bitrate_mode high` at `1080p` |
-| `kling4_0` / `kling_4_0_flash` (`reference-to-video`) | `<= 10` imgs (`<= 15` w/ video+elements) | **2–4** (`start` + 1–2 refs/elements + opt. `end`) | Native `1080p`/`4k`, strong physics & `kling_element_ids` |
+| `seedance_2_5` / `cinematic_studio_video_4_0` (`omni_reference`) | `<= 30` imgs (`<= 50` media) | **2–4** (max 5: `start` + 1–3 refs + opt. `end`) | `> 5` images trigger bleed & stiff motion; pass `--bitrate_mode high` at `1080p` (`CS 4.0` caps at `1080p`, no `--draft`) |
+| `kling4_0` (`reference-to-video`) | `<= 10` imgs (`<= 15` w/ video+elements) | **2–4** (`start` + `1–2` refs/elements + opt. `end`) | Native `720p`/`1080p`/`4k` (`18.75 cr.` 5s `1080p`), `kling_element_ids`; pass `--duration 5` (defaults to `10s` = `37.5 cr.`) |
+| `kling_4_0_flash` (`reference-to-video`) | `<= 10` imgs (`<= 15` w/ video+elements) | **2–4** (`start` + `1–2` refs/elements; **no `end_image`**) | **`720p`-only** fast draft (`7.5 cr.` 5s / `15 cr.` default `10s`); omits `end_image` |
 | `flux_3_video` | `<= 10` imgs | **1–3** | **CEL:** cannot mix image inputs with `video_references` |
-| `wan3_0` / `wan3_0_prime` | `start`+`end` **OR** `image_references` | **1–2** (`start` or `start+end`) | **CEL:** `start`/`end` and `image_references` are mutually exclusive—bake continuity in `R3` |
+| `wan3_0` / `wan3_0_prime` | `start`+`end` **OR** `image_references` | **1–2** (`start` or `start+end`) | **CEL:** `start`/`end` and reference media are mutually exclusive—bake continuity in `R3` |
 | `veo3_1` | CLI: **1** (`start_image`); external Ingredients: `3` | **1** (CLI) / **2–3** (Ingredients) | Clean `R3` keyframe I2V keeps camera fluid |
 
 ### Tool-by-Job Quick Lookup
@@ -145,7 +146,7 @@ Exceeding optimal counts triggers **attention dilution**, **attribute bleed**, a
 | Relight set without moving walls | `nano_banana_2_relight` / `flux_kontext` | live / `1.5 cr.` | Requires `light_source`, `light_quality`, `color`, `brightness` |
 | 2–4 cuts inside one room | `kling_o3_image_reference --multi_shots true` | `6.25–10 cr.` (5s) | Shared latent space holds walls/props across cuts |
 | Unbroken same-set extension | `seedance_2_5` / `cinematic_studio_video_4_0 --mode video_extension` | live quote | `--extension_mode forward\|backward` |
-| Fix 1 drifted prop in locked clip | `hf_mult_replace_object` / `hf_mult_replace_object_flash` / `kling4_0 --mode video-edit` | live / `22.5 cr.` | Genjutsu (`480p`–`1080p`) / Lite (`720p`–`4k`) / Kling edit |
+| Fix 1 drifted prop in locked clip | `hf_mult_replace_object_flash` / `hf_mult_replace_object` / `kling4_0 --mode video-edit` | `12` / `120` / `22.5 cr.` (5s) | Genjutsu Lite (`1080p`-only, 10× cheaper) / Genjutsu (`480p`–`1080p`) / Kling edit (`--duration 5`) |
 | Tier 3 depth pass | `depth_anything_video` (`--colormap grayscale --variant VDA-Large`) | `7.57 cr.` (`720p`) | Locks 3D geometry from greybox or draft |
 
 *\*Web UI vs. CLI Elements boundary: creating Cinema Studio 4.0 **Elements** (`@Location`, `@Prop`) and creating **Kling Elements** (`kling_element_ids`) are Web UI actions; in CLI, bind pre-existing `kling_element_ids` or uploaded `--image_references` UUIDs. Always pair `@ImageN` tags with concrete object nouns (`the kettle from @Image2`) to prevent 1-index ambiguity alongside `--start_image`.*
@@ -165,7 +166,7 @@ Exceeding optimal counts triggers **attention dilution**, **attribute bleed**, a
 | **Background clutter follows prop into every scene** | Source prop photo sat on a messy surface | Isolate with `image_background_remover` / `image_decompose` or regenerate on `#808080` gray |
 | **Grid borders or split-screen flicker in video** | Raw 2×2/3×3 contact sheet passed straight to video model | Slice with `make slice-grid ... TRIM=4`, upload individual PNG tiles via `hf_guard.py upload` |
 | **Textures turn muddy by Shot 4–5** | Photocopy cascade (chaining compressed video screenshots) | Re-anchor `R3` stills and `R4/R5` `--image_references` to original `LOCKED` `R2` Master UUIDs |
-| **One prop warps mid-take on an otherwise great clip** | Diffusion drift on moving handheld object | Rescue surgically with `hf_mult_replace_object` / `hf_mult_replace_object_flash` or `kling4_0 --mode video-edit` |
+| **One prop warps mid-take on an otherwise great clip** | Diffusion drift on moving handheld object | Rescue surgically with `hf_mult_replace_object_flash` (`12 cr.`, `1080p`-only), `hf_mult_replace_object` (`120 cr.`), or `kling4_0 --mode video-edit --duration 5` |
 
 ## 7. Surgical 1:1 Repairs, Specialty Prop Plates & Unified Palette Cards
 

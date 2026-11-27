@@ -8,18 +8,20 @@
   (`R0`–`R5`): agents own 100% of technical craft inside a round, then stop with
   one compact **Dailies Packet** for taste feedback and next-round credit
   approval.
-- **Cheap proofs before expensive pixels (Web `Unlimited` mandatory default).**
-  On Unlimited-eligible plans (`Ultra`, etc.), route all `R2`–`R5` image and
-  video generations to `0 cr.` **Unlimited** on `higgsfield.ai` via the
-  built-in `browser` subagent **by default** (verify `Unlimited` is **ON** /
-  `0 credits` before generating, pause only for manual Director login/CAPTCHA,
-  and ingest downloads via `hf_guard.py upload`). Never default to paid CLI
-  quotes or stop to ask "CLI or Unlimited?" for Unlimited-eligible visuals;
-  reserve paid CLI (`hf_guard.py run`) strictly for non-Unlimited items (audio,
-  unavailable models) or explicit Director speed requests. Always prove meaning
-  before story, story before pixels, Lookbook `A / B / C` before scenes, stills
-  and a 0-video-credit Still Animatic before motion, and drafts before native
-  `1080p` mastering (never pixel-upscale `480p` drafts; verify `R5` at `1:1`).
+- **Cheap proofs before expensive pixels (CTA-verified Web `Unlimited` first).**
+  On Unlimited-eligible plans (`Ultra`, etc.), route active-rotation `R2`–`R5`
+  visuals to `0 cr.` **Unlimited** on `higgsfield.ai` via the built-in `browser`
+  subagent **by default**: verify the **Generate CTA button itself flips to
+  `Unlimited` (`0 cr.`)** (never trust promo badges alone; excluded on MCP/CLI,
+  Canvas, and Supercomputer), pause only for manual Director login/CAPTCHA, and
+  ingest via `hf_guard.py upload`. Route non-Unlimited visuals (e.g., video when
+  Web Unlimited video is inactive) straight to economy native CLI or `Sub-0.5s
+  2K Still Montage` without empty browser loops; reserve paid CLI (`hf_guard.py
+  run`) for non-Unlimited items (audio, inactive-rotation models) or explicit
+  Director speed requests. Always prove meaning before story, story before
+  pixels, Lookbook `A / B / C` before scenes, stills and a 0-video-credit Still
+  Animatic before motion, and drafts before native `1080p` mastering (never
+  pixel-upscale `480p` drafts; verify `R5` at `1:1`).
 - **Keep the Director boundary jargon-free.** Present visual artifacts, light,
   texture, pacing, `A / B / C` choices (or blends), and plain credit totals.
   Keep model slugs, CLI flags, prompt syntax, UUID wiring, codecs, and FFmpeg
@@ -50,11 +52,11 @@
 
 - **Two-way vs. one-way doors.** Read-only CLI introspection, story craft,
   verified `0 cr.` Web `Unlimited` generations on `higgsfield.ai` (once round
-  direction is confirmed and the UI reads `Unlimited` ON / `0 credits`), local
-  `qa_media.py`, lookbook grids, still animatics, and local FFmpeg cuts are
-  authorized in scope. Any credit-spending generation (`> 0 cr.` CLI or Web),
-  remote uploads of private media, unlocking `LOCKED` assets, and publishing
-  require explicit Director approval.
+  direction is confirmed and the Generate CTA button reads `Unlimited` /
+  `0 cr.`), local `qa_media.py`, lookbook grids, still animatics, and local
+  FFmpeg cuts are authorized in scope. Any credit-spending generation (`> 0 cr.`
+  CLI or Web), remote uploads of private media, unlocking `LOCKED` assets, and
+  publishing require explicit Director approval.
 - **Mandatory spend guard & raw trace logging.** Route every paid campaign job
   through `python3 scripts/hf_guard.py preflight` / `run` with active `brief.md`,
   `--round`, and cumulative `--round-cap`; route tracked uploads through
@@ -85,10 +87,10 @@ first; each skill links its deep `references/`):
 - Commercial craft vocabulary (`swap test`, `mute test`, `Narrative Lock`, `Continuity Lock`, `test-take check`) → [Ad Craft Glossary](docs/ad-craft-glossary.md).
 - Narrative architecture (`Narrative Lock`, `BUT/THEREFORE` causality, per-shot `Narrative job` / Deletion Test, `0.1s` instant-read, `2+2` subtext, Blind Viewer Read, non-commercial arcs) → [`video-narrative`](.agents/skills/video-narrative/SKILL.md).
 - Models, `0 cr.` Web Unlimited, live CLI/CEL gotchas, `hf_guard.py`, or `R4 → R5` mastering/upscaling → [`higgsfield-cli`](.agents/skills/higgsfield-cli/SKILL.md).
-- Prompt engineering, optics, camera control/rigs/speedramps, dialogue/audio, anti-IP, or prompt repairs → [`video-direction`](.agents/skills/video-direction/SKILL.md).
+- Prompt engineering, optics, camera control/rigs/speedramps, motion design, abstract/zero-actor spots, `3D Jutsu`, dialogue/audio, anti-IP, or prompt repairs → [`video-direction`](.agents/skills/video-direction/SKILL.md).
 - Cross-shot characters/expressions, locations/buildings/props, Asset Bibles, ref budgets, Soul ID, Motion Control, or Intone → [`video-consistency`](.agents/skills/video-consistency/SKILL.md).
 - `qa_media.py` probes, `1:1` crop strips, batch audits, lookbook grids, or pre-Dailies Visual Critic rubric → [`video-qa`](.agents/skills/video-qa/SKILL.md).
-- `R3` still animatics, VO timing, FPS-locked FFmpeg mastering, `-14 LUFS`, `LUT`/`GRAIN` finishing, stems, or Remotion boundary → [`video-assembly`](.agents/skills/video-assembly/SKILL.md).
+- `R3` still animatics, `Sub-0.5s` still montages, VO timing, FPS-locked FFmpeg mastering, `-14 LUFS`, `LUT`/`GRAIN` finishing, post-LUT `ProRes 4444` overlays, stems, or `Supercomputer / AI Motion Design` vs. local Remotion boundary → [`video-assembly`](.agents/skills/video-assembly/SKILL.md).
 - User-invoked & commercial skills → [`.agents/skills`](.agents/skills): user-invoked `idea-refine`, `grilling`, `studio-retro`; commercial `ad-references`, `ad-concepts`, `ad-script`, `ad-storyboard`.
 - Editing `AGENTS.md`, docs, roles, or skills → [Writing For Agents](docs/writing-for-agents.md).
 - Commands, flags, and schemas → inspect `make help`, `scripts/<tool> --help`, and `campaigns/example-product-spot/`; run `make check` before finishing harness edits.

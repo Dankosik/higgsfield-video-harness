@@ -679,6 +679,331 @@ PRODUCT_PHOTOSHOOT_VALUE_FLAGS = frozenset(
 PRODUCT_PHOTOSHOOT_BOOL_FLAGS = frozenset({"--enhance-only"})
 GLOBAL_CLI_BOOL_FLAGS = frozenset({"--json", "--no-color"})
 
+MEDIA_FLAG_NAMES = frozenset(
+    {
+        "start_image",
+        "end_image",
+        "image",
+        "images",
+        "image_references",
+        "image_reference",
+        "video",
+        "videos",
+        "video_references",
+        "video_reference",
+        "audio",
+        "audios",
+        "audio_references",
+        "audio_reference",
+        "character_images",
+        "character_image",
+        "location_image",
+        "location_images",
+        "input_images",
+        "input_image",
+        "input_video",
+        "input_videos",
+        "input_audio",
+        "product_image",
+        "product_images",
+        "ref_image",
+        "ref_images",
+        "reference_image",
+        "reference_images",
+        "reference_video",
+        "reference_videos",
+        "reference_audio",
+        "mask",
+        "mask_image",
+        "media",
+        "medias",
+        "first_frame",
+        "last_frame",
+        "source_image",
+        "source_video",
+        "target_image",
+        "target_video",
+        "driving_video",
+        "face_image",
+        "style_image",
+        "init_image",
+    }
+)
+
+MEDIA_FILE_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".avif",
+    ".heic",
+    ".heif",
+    ".svg",
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".webm",
+    ".avi",
+    ".m4v",
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".glb",
+    ".gltf",
+    ".obj",
+    ".fbx",
+    ".usdz",
+    ".exr",
+    ".hdr",
+)
+
+_JSON_MEDIA_METADATA_KEYS = frozenset(
+    {"type", "format", "mime_type", "media_type", "role", "mode"}
+)
+
+
+def _path_exists_on_disk(val: str) -> bool:
+    """Return True if val (or its ~-expanded form) resolves to an existing local path."""
+    try:
+        p = Path(val)
+        return p.exists() or p.expanduser().exists()
+    except OSError:
+        return False
+
+
+def _looks_like_local_path(raw: str) -> bool:
+    """Return True when raw is an existing local path or looks like a local filesystem path."""
+    val = raw.strip()
+    if not val:
+        return False
+    low = val.lower()
+    if low.startswith(("http://", "https://")):
+        return False
+    if low.startswith("file://"):
+        return True
+    if val.startswith(("/", "./", "../", "~/", "~\\")):
+        return True
+    if "/" in val or "\\" in val:
+        return True
+    if any(low.endswith(ext) for ext in MEDIA_FILE_EXTENSIONS):
+        return True
+    return _path_exists_on_disk(val)
+
+
+def _collect_json_media_strings(obj: Any) -> list[str]:
+    """Collect candidate media string values from a parsed JSON array or object."""
+    out: list[str] = []
+    if isinstance(obj, str):
+        out.append(obj)
+    elif isinstance(obj, list):
+        for item in obj:
+            out.extend(_collect_json_media_strings(item))
+    elif isinstance(obj, dict):
+        for key, val in obj.items():
+            if isinstance(key, str) and key.strip().lower() in _JSON_MEDIA_METADATA_KEYS:
+                continue
+            out.extend(_collect_json_media_strings(val))
+    return out
+
+
+def _inspect_media_value(
+    raw_flag: str, raw_val: str
+) -> tuple[str | None, list[dict[str, str]]]:
+    """Check one media flag value for local paths; return (cost_safe_val_or_None, local_hits)."""
+    stripped = raw_val.strip()
+    if not stripped:
+        return raw_val, []
+
+    low = stripped.lower()
+    if not low.startswith(("http://", "https://")) and _path_exists_on_disk(stripped):
+        return None, [{"flag": raw_flag, "value": stripped}]
+
+    if stripped.startswith(("[", "{")):
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            hits: list[dict[str, str]] = []
+            kept: list[Any] = []
+            for item in parsed:
+                item_hits = [
+                    s for s in _collect_json_media_strings(item) if _looks_like_local_path(s)
+                ]
+                if item_hits:
+                    for s in item_hits:
+                        hits.append({"flag": raw_flag, "value": s.strip()})
+                else:
+                    kept.append(item)
+            if not hits:
+                return raw_val, []
+            return (json.dumps(kept, ensure_ascii=False) if kept else None), hits
+        if isinstance(parsed, dict):
+            dict_hits = [
+                {"flag": raw_flag, "value": s.strip()}
+                for s in _collect_json_media_strings(parsed)
+                if _looks_like_local_path(s)
+            ]
+            if not dict_hits:
+                return raw_val, []
+            return None, dict_hits
+
+    if "," in stripped:
+        parts = [p.strip() for p in stripped.split(",") if p.strip()]
+        hits = []
+        kept_parts: list[str] = []
+        for part in parts:
+            if _looks_like_local_path(part):
+                hits.append({"flag": raw_flag, "value": part})
+            else:
+                kept_parts.append(part)
+        if not hits:
+            return raw_val, []
+        return (",".join(kept_parts) if kept_parts else None), hits
+
+    if _looks_like_local_path(stripped):
+        return None, [{"flag": raw_flag, "value": stripped}]
+    return raw_val, []
+
+
+def _inspect_and_strip_local_media_paths(
+    extra_args: list[str],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Inspect media-accepting flags for local file paths and return (cost_safe_args, hits)."""
+    sanitized: list[str] = []
+    hits: list[dict[str, str]] = []
+    idx = 0
+    total = len(extra_args)
+
+    while idx < total:
+        tok = extra_args[idx]
+        if not tok.startswith("--") or tok == "--":
+            sanitized.append(tok)
+            idx += 1
+            continue
+
+        if "=" in tok:
+            raw_flag, raw_val = tok.split("=", 1)
+            norm = raw_flag[2:].strip().lower().replace("-", "_")
+            if norm in MEDIA_FLAG_NAMES:
+                clean_val, val_hits = _inspect_media_value(raw_flag, raw_val)
+                hits.extend(val_hits)
+                if clean_val is not None:
+                    sanitized.append(f"{raw_flag}={clean_val}")
+            else:
+                sanitized.append(tok)
+            idx += 1
+            continue
+
+        norm = tok[2:].strip().lower().replace("-", "_")
+        if norm in MEDIA_FLAG_NAMES:
+            val_start = idx + 1
+            val_end = val_start
+            while val_end < total and not extra_args[val_end].startswith("--"):
+                val_end += 1
+            if val_end == val_start:
+                sanitized.append(tok)
+                idx += 1
+                continue
+            kept_vals: list[str] = []
+            for raw_val in extra_args[val_start:val_end]:
+                clean_val, val_hits = _inspect_media_value(tok, raw_val)
+                hits.extend(val_hits)
+                if clean_val is not None:
+                    kept_vals.append(clean_val)
+            if kept_vals:
+                sanitized.append(tok)
+                sanitized.extend(kept_vals)
+            idx = val_end
+            continue
+
+        sanitized.append(tok)
+        if idx + 1 < total and not extra_args[idx + 1].startswith("--"):
+            sanitized.append(extra_args[idx + 1])
+            idx += 2
+        else:
+            idx += 1
+
+    return sanitized, hits
+
+
+def _extract_present_flag_names(extra_args: list[str]) -> set[str]:
+    """Return normalized CLI flag names explicitly supplied with a non-empty value."""
+    present: set[str] = set()
+    idx = 0
+    total = len(extra_args)
+    while idx < total:
+        tok = extra_args[idx]
+        if not tok.startswith("--") or tok == "--":
+            idx += 1
+            continue
+        if "=" in tok:
+            raw_name, raw_val = tok[2:].split("=", 1)
+            norm = raw_name.strip().lower().replace("-", "_")
+            if norm and raw_val.strip():
+                present.add(norm)
+            idx += 1
+            continue
+        norm = tok[2:].strip().lower().replace("-", "_")
+        if idx + 1 < total and not extra_args[idx + 1].startswith("--"):
+            if norm and extra_args[idx + 1].strip():
+                present.add(norm)
+            idx += 2
+        else:
+            idx += 1
+    return present
+
+
+def _check_hidden_default_warnings(model: str, extra_args: list[str]) -> list[str]:
+    """Return non-blocking warnings for verified live Higgsfield CLI hidden expensive defaults."""
+    m = (model or "").strip().lower()
+    if not m:
+        return []
+    present = _extract_present_flag_names(extra_args)
+    out: list[str] = []
+
+    if m in ("kling4_0", "kling_4_0_flash") and "duration" not in present:
+        out.append(
+            f"{m}: --duration omitted; CLI defaults to 10s (doubling 5s credit cost) — "
+            "pass --duration 5 explicitly unless a 10s clip is intended"
+        )
+
+    if m in ("cinematic_studio_video_3_5", "marketing_studio_video") and "duration" not in present:
+        out.append(
+            f"{m}: --duration omitted; CLI defaults to 15s (3x 5s duration) — "
+            "pass --duration 5 explicitly unless a 15s clip is intended"
+        )
+
+    if (
+        m in ("cinematic_studio_video_3_5", "cinematic_studio_3_0")
+        and "prompt_language" not in present
+    ):
+        out.append(
+            f"{m}: --prompt_language omitted; CLI defaults to 'zh' — "
+            "pass --prompt_language en explicitly for English prompts"
+        )
+
+    if m == "hf_mult_motion_control":
+        out.append(
+            "hf_mult_motion_control: full non-flash model costs up to 100 cr. (1080p/5s); "
+            "consider 10x cheaper hf_mult_motion_control_flash (Lite, 10 cr. at 1080p) first"
+        )
+    elif m == "hf_mult_replace_object":
+        out.append(
+            "hf_mult_replace_object: full non-flash model costs up to 120 cr. (1080p/5s); "
+            "consider 10x cheaper hf_mult_replace_object_flash (Lite, 12 cr. at 1080p) first"
+        )
+
+    return out
+
 
 def _parse_positive_ascii_int(raw: str) -> int | None:
     """Parse a positive ASCII integer (accepting Go pflag `+N`, rejecting `0`, `-N`, Unicode digits)."""
@@ -960,6 +1285,7 @@ def _do_preflight(
     extra_args: list[str],
     records: list[dict[str, Any]] | None = None,
     resolved_version: int | None = None,
+    block_local_paths: bool = True,
 ) -> tuple[int, dict[str, Any]]:
     rcap_err = _validate_round_cap(round_cap)
     if rcap_err is not None:
@@ -1051,12 +1377,46 @@ def _do_preflight(
         }
 
     warnings: list[str] = []
+    warnings.extend(_check_hidden_default_warnings(model, extra_args))
+
+    # Block or sanitize local file paths BEFORE calling remote CLI cost estimation
+    # (live `higgsfield generate cost` silently uploads local paths to remote servers).
+    cost_extra_args, local_path_hits = _inspect_and_strip_local_media_paths(extra_args)
+    if local_path_hits:
+        offending_flags: list[str] = []
+        for hit in local_path_hits:
+            if hit["flag"] not in offending_flags:
+                offending_flags.append(hit["flag"])
+        if block_local_paths:
+            return 2, {
+                "ok": False,
+                "error_code": "local_path_in_cost_quote",
+                "campaign": str(campaign_dir),
+                "shot": shot,
+                "kind": kind,
+                "round": round_name,
+                "model": model,
+                "offending_flags": offending_flags,
+                "offending_values": local_path_hits,
+                "message": (
+                    f"Refusing cost quote with local file path(s) in "
+                    f"{', '.join(offending_flags)}: `higgsfield generate cost` silently "
+                    "uploads local paths to remote servers. Upload approved media explicitly "
+                    "via `hf_guard.py upload` and pass uploaded UUIDs (or quote with "
+                    "cost-only flags without local file paths)."
+                ),
+            }
+        warnings.append(
+            f"stripped local file path(s) from cost quote ({', '.join(offending_flags)}) "
+            "to prevent silent pre-execution upload; prefer `hf_guard.py upload` and pass "
+            "uploaded UUIDs"
+        )
 
     # Validate command-specific cost flags fail-closed before calling remote CLI
     fb_args: list[str] = []
     fb_mult = 1
     if hf_command == "product-photoshoot":
-        fb_args, fb_mult, count_err = _sanitize_fallback_cost_args(hf_command, extra_args)
+        fb_args, fb_mult, count_err = _sanitize_fallback_cost_args(hf_command, cost_extra_args)
         if count_err is not None:
             return 2, count_err
 
@@ -1073,17 +1433,17 @@ def _do_preflight(
 
     # Cost estimation (mandatory)
     cost_multiplier = 1
-    if hf_command == "generate" and is_workflow and extra_args:
-        wf_cost_args: list[str] = extra_args
+    if hf_command == "generate" and is_workflow and cost_extra_args:
+        wf_cost_args: list[str] = cost_extra_args
         wf_rc, _, _, wf_json = _run_cli([hf_bin, "workflow", "get", model, "--json"])
         if wf_rc == 0 and isinstance(wf_json, dict):
-            filtered_wf = _filter_workflow_cost_args(extra_args, wf_json)
+            filtered_wf = _filter_workflow_cost_args(cost_extra_args, wf_json)
             if filtered_wf is not None:
                 wf_cost_args = filtered_wf
         cost_cmd = _build_cost_cmd(hf_bin, "generate", model, True, wf_cost_args)
         cost_rc, cost_out, cost_err, cost_json = _run_cli(cost_cmd)
     else:
-        cost_cmd = _build_cost_cmd(hf_bin, hf_command, model, is_workflow, extra_args)
+        cost_cmd = _build_cost_cmd(hf_bin, hf_command, model, is_workflow, cost_extra_args)
         cost_rc, cost_out, cost_err, cost_json = _run_cli(cost_cmd)
         if (
             cost_rc not in (0, 127)
@@ -1092,7 +1452,7 @@ def _do_preflight(
             and model != hf_command
         ):
             if hf_command != "product-photoshoot":
-                fb_args, fb_mult, _ = _sanitize_fallback_cost_args(hf_command, extra_args)
+                fb_args, fb_mult, _ = _sanitize_fallback_cost_args(hf_command, cost_extra_args)
             fallback_cmd = _build_cost_cmd(hf_bin, "generate", model, False, fb_args)
             fb_rc, fb_out, fb_err, fb_json = _run_cli(fallback_cmd)
             if fb_rc != 127:
@@ -2151,6 +2511,7 @@ def _cmd_run(args: argparse.Namespace, extra_args: list[str]) -> int:
                     extra_args=cli_args,
                     records=records,
                     resolved_version=version,
+                    block_local_paths=bool(args.dry_run),
                 )
                 if pf_rc != 0:
                     print(json.dumps(preflight_info, indent=2, ensure_ascii=False))

@@ -29,6 +29,10 @@ SAMPLE_FPS = 4
 TILE_SIZE = 16
 FRAME_BYTES = SAMPLE_W * SAMPLE_H
 STILL_DIFF_THRESHOLD = 1.0
+LOCKED_STILL_W = 160
+LOCKED_STILL_H = 96
+LOCKED_STILL_GRID = 8
+LOCKED_STILL_DRIFT_THRESHOLD = 12.0
 SILENT_MEAN_DB_THRESHOLD = -60.0
 VOICE_RMS_ACTIVE_DB = -34.0
 
@@ -548,6 +552,143 @@ def inspect_pixel_diff(
     }
 
 
+def _extract_gray_frame(
+    ffmpeg: str,
+    video_path: Path,
+    ts: float,
+    width: int,
+    height: int,
+) -> bytes | None:
+    expected = width * height
+    candidates: list[float] = []
+    for raw_ts in (ts, max(0.0, ts - 0.15), max(0.0, ts - 0.35)):
+        rounded = round(raw_ts, 3)
+        if rounded not in candidates:
+            candidates.append(rounded)
+    for attempt_ts in candidates:
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-ss",
+                f"{attempt_ts:.3f}",
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={width}:{height},format=gray",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "gray",
+                "-",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode == 0 and len(proc.stdout) >= expected:
+            return proc.stdout[:expected]
+    return None
+
+
+def _grid_tile_means(
+    frame: bytes,
+    width: int = LOCKED_STILL_W,
+    height: int = LOCKED_STILL_H,
+    grid: int = LOCKED_STILL_GRID,
+) -> tuple[float, list[float]]:
+    tile_w = width // grid
+    tile_h = height // grid
+    tile_count = tile_w * tile_h
+    means: list[float] = []
+    total_luma = 0
+    for gy in range(grid):
+        y0 = gy * tile_h
+        y1 = y0 + tile_h
+        for gx in range(grid):
+            x0 = gx * tile_w
+            x1 = x0 + tile_w
+            tile_sum = 0
+            for row in range(y0, y1):
+                off = row * width
+                tile_sum += sum(frame[off + x0 : off + x1])
+            total_luma += tile_sum
+            means.append(tile_sum / tile_count)
+    return total_luma / (width * height), means
+
+
+def _analyze_locked_still_drift(
+    ffmpeg: str,
+    video_path: Path,
+    duration: float,
+    drift_threshold: float,
+) -> dict[str, Any]:
+    """Compare opening anchor frame against 60%/80%/95% late frames on an 8x8 grayscale grid."""
+    t_anchor = min(0.1, max(0.0, duration * 0.05))
+    max_seek = max(0.0, duration - 0.05) if duration > 0.1 else 0.0
+    late_specs = (
+        (0.60, min(duration * 0.60, max_seek)),
+        (0.80, min(duration * 0.80, max_seek)),
+        (0.95, min(duration * 0.95, max_seek)),
+    )
+
+    anchor_raw = _extract_gray_frame(
+        ffmpeg, video_path, t_anchor, LOCKED_STILL_W, LOCKED_STILL_H
+    )
+    if anchor_raw is None:
+        raise RuntimeError(f"failed to extract locked-still anchor frame at {t_anchor:.3f}s")
+    anchor_mean, anchor_tiles = _grid_tile_means(anchor_raw)
+
+    max_tile_drift = 0.0
+    mean_luma_shift = 0.0
+    tail_drift = 0.0
+    worst_tile: dict[str, Any] = {"row": 0, "col": 0, "time": round(t_anchor, 3)}
+    sample_times: list[float] = []
+
+    for frac, ts in late_specs:
+        late_raw = _extract_gray_frame(
+            ffmpeg, video_path, ts, LOCKED_STILL_W, LOCKED_STILL_H
+        )
+        if late_raw is None:
+            raise RuntimeError(f"failed to extract locked-still late frame at {ts:.3f}s")
+        sample_times.append(round(ts, 3))
+        late_mean, late_tiles = _grid_tile_means(late_raw)
+        luma_delta = abs(late_mean - anchor_mean)
+        if luma_delta > mean_luma_shift:
+            mean_luma_shift = luma_delta
+
+        frame_max_tile = 0.0
+        for idx, (m_late, m_anchor) in enumerate(zip(late_tiles, anchor_tiles)):
+            delta = abs(m_late - m_anchor)
+            if delta > frame_max_tile:
+                frame_max_tile = delta
+            if delta > max_tile_drift:
+                max_tile_drift = delta
+                worst_tile = {
+                    "row": idx // LOCKED_STILL_GRID,
+                    "col": idx % LOCKED_STILL_GRID,
+                    "time": round(ts, 3),
+                }
+        if frac >= 0.65 and frame_max_tile > tail_drift:
+            tail_drift = frame_max_tile
+
+    passed = max_tile_drift <= drift_threshold
+    return {
+        "enabled": True,
+        "grid": f"{LOCKED_STILL_GRID}x{LOCKED_STILL_GRID}",
+        "anchor_time": round(t_anchor, 3),
+        "sample_times": sample_times,
+        "threshold": round(drift_threshold, 3),
+        "mean_luma_shift": round(mean_luma_shift, 3),
+        "max_tile_drift": round(max_tile_drift, 3),
+        "tail_drift": round(tail_drift, 3),
+        "worst_tile": worst_tile,
+        "passed": passed,
+    }
+
+
 def _measure_volumedetect(ffmpeg: str, media_path: Path) -> dict[str, float | None]:
     proc = subprocess.run(
         [
@@ -888,7 +1029,11 @@ def inspect_clip(
     black_min: float = 0.5,
     allow_silent: bool = False,
     strict: bool = False,
+    locked_still: bool = False,
+    drift_threshold: float = LOCKED_STILL_DRIFT_THRESHOLD,
 ) -> dict[str, Any]:
+    if not math.isfinite(drift_threshold) or drift_threshold <= 0:
+        raise ValueError("--drift-threshold must be a finite positive number")
     ffmpeg, ffprobe = _ensure_ffmpeg_tools()
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -940,6 +1085,7 @@ def inspect_clip(
 
     black_gaps: list[dict[str, float]] = []
     motion: dict[str, Any] = {}
+    locked_still_check: dict[str, Any] = {"enabled": False}
     quality: dict[str, float | None] = {"hf_edge_energy": None}
     volume: dict[str, float | None] = {"mean_volume_db": None, "max_volume_db": None}
     loudness: dict[str, float | None] = {
@@ -951,6 +1097,19 @@ def inspect_clip(
 
     if vstream is not None and width and height and duration and duration > 0:
         max_dim = max(width, height)
+        if width % 4 != 0 or height % 4 != 0:
+            warnings.append(
+                {
+                    "code": "non_div4_dims",
+                    "message": (
+                        f"dimensions {width}x{height} are not divisible by 4 "
+                        "(e.g. 1918x1080 upscale rounding or 854x480 draft; "
+                        "incompatible with topaz_hyperion_2_5 and risks pillarbox padding)"
+                    ),
+                    "width": width,
+                    "height": height,
+                }
+            )
         if max_dim >= 1200 and (width % 4 != 0 or height % 4 != 0):
             warnings.append(
                 {
@@ -1011,43 +1170,68 @@ def inspect_clip(
             max_still,
             max_frozen_tail=max_frozen_tail,
         )
-        if max_still < 60.0 and motion.get("moving_seconds", 0.0) == 0.0 and duration >= 1.5:
-            errors.append(
-                {
-                    "code": "fully_static_clip",
+        if not locked_still:
+            if max_still < 60.0 and motion.get("moving_seconds", 0.0) == 0.0 and duration >= 1.5:
+                errors.append(
+                    {
+                        "code": "fully_static_clip",
+                        "message": (
+                            f"clip is completely static across {duration}s (moving_seconds=0.0)"
+                        ),
+                        "duration": duration,
+                        "moving_seconds": 0.0,
+                    }
+                )
+            for st in motion.get("still_stretches") or []:
+                entry = {
+                    "code": "still_stretch",
                     "message": (
-                        f"clip is completely static across {duration}s (moving_seconds=0.0)"
+                        f"static frame stretch detected: {st['start']}s–{st['end']}s "
+                        f"({st['duration']}s > {max_still}s)"
                     ),
-                    "duration": duration,
-                    "moving_seconds": 0.0,
+                    **st,
                 }
-            )
-        for st in motion.get("still_stretches") or []:
-            entry = {
-                "code": "still_stretch",
-                "message": (
-                    f"static frame stretch detected: {st['start']}s–{st['end']}s "
-                    f"({st['duration']}s > {max_still}s)"
-                ),
-                **st,
-            }
-            if strict:
-                errors.append(entry)
-            else:
-                warnings.append(entry)
+                if strict:
+                    errors.append(entry)
+                else:
+                    warnings.append(entry)
 
-        ft = motion.get("frozen_tail")
-        if ft is not None:
-            errors.append(
-                {
-                    "code": "frozen_tail",
-                    "message": (
-                        f"frozen I2V tail detected: froze at {ft['start']}s–{ft['end']}s "
-                        f"({ft['duration']}s) after {ft['moving_before_tail']}s of motion"
-                    ),
-                    **ft,
-                }
+            ft = motion.get("frozen_tail")
+            if ft is not None:
+                errors.append(
+                    {
+                        "code": "frozen_tail",
+                        "message": (
+                            f"frozen I2V tail detected: froze at {ft['start']}s–{ft['end']}s "
+                            f"({ft['duration']}s) after {ft['moving_before_tail']}s of motion"
+                        ),
+                        **ft,
+                    }
+                )
+        else:
+            locked_still_check = _analyze_locked_still_drift(
+                ffmpeg, video_path, duration, drift_threshold
             )
+            if not locked_still_check["passed"]:
+                wt = locked_still_check["worst_tile"]
+                errors.append(
+                    {
+                        "code": "locked_still_drift",
+                        "message": (
+                            f"locked-still lighting/shadow drift detected: "
+                            f"max_tile_drift={locked_still_check['max_tile_drift']} > "
+                            f"{locked_still_check['threshold']} "
+                            f"(mean_luma_shift={locked_still_check['mean_luma_shift']}, "
+                            f"tail_drift={locked_still_check['tail_drift']}, "
+                            f"worst tile r{wt['row']}c{wt['col']} at {wt['time']}s)"
+                        ),
+                        "max_tile_drift": locked_still_check["max_tile_drift"],
+                        "mean_luma_shift": locked_still_check["mean_luma_shift"],
+                        "tail_drift": locked_still_check["tail_drift"],
+                        "threshold": locked_still_check["threshold"],
+                        "worst_tile": wt,
+                    }
+                )
 
         if max_still < 60.0 and duration >= 1.5:
             temporal = _analyze_temporal_stutter(ffmpeg, video_path, duration, fps)
@@ -1122,6 +1306,7 @@ def inspect_clip(
         "quality": quality,
         "black_gaps": black_gaps,
         "motion": motion,
+        "locked_still_check": locked_still_check,
         "volume": volume,
         "loudness": loudness,
         "warnings": warnings,
@@ -1322,19 +1507,33 @@ def inspect_batch(
             errors.append(
                 {"code": "missing_video_stream", "path": str(vpath), "message": f"{vpath}: missing video stream"}
             )
-        elif max(width, height) >= 1200 and (width % 4 != 0 or height % 4 != 0):
-            errors.append(
+        elif width % 4 != 0 or height % 4 != 0:
+            warnings.append(
                 {
-                    "code": "non_standard_dimensions",
+                    "code": "non_div4_dims",
                     "path": str(vpath),
                     "width": width,
                     "height": height,
                     "message": (
-                        f"{vpath}: HD dimensions {width}x{height} are not divisible by 4 "
-                        "(upscale rounding artifact such as 1918x1080 or 1278x720)"
+                        f"{vpath}: dimensions {width}x{height} are not divisible by 4 "
+                        "(e.g. 1918x1080 upscale rounding or 854x480 draft; "
+                        "incompatible with topaz_hyperion_2_5 and risks pillarbox padding)"
                     ),
                 }
             )
+            if max(width, height) >= 1200:
+                errors.append(
+                    {
+                        "code": "non_standard_dimensions",
+                        "path": str(vpath),
+                        "width": width,
+                        "height": height,
+                        "message": (
+                            f"{vpath}: HD dimensions {width}x{height} are not divisible by 4 "
+                            "(upscale rounding artifact such as 1918x1080 or 1278x720)"
+                        ),
+                    }
+                )
         if width and height and max(width, height) >= 1900 and vbr_kbps is not None and vbr_kbps < 1800.0:
             warnings.append(
                 {
@@ -2125,6 +2324,14 @@ def _print_human(report: dict[str, Any]) -> None:
             print(f"  1:1 crop strip: {report['crops']}")
         if report.get("verify_slices"):
             print(f"  Verify slices ({len(report['verify_slices'])}): {', '.join(report['verify_slices'])}")
+        lsc = report.get("locked_still_check") or {}
+        if lsc.get("enabled"):
+            lsc_state = "PASS" if lsc.get("passed") else "FAIL"
+            print(
+                f"  Locked-still drift ({lsc_state}): max_tile_drift={lsc.get('max_tile_drift')} "
+                f"(limit {lsc.get('threshold')}), mean_luma_shift={lsc.get('mean_luma_shift')}, "
+                f"tail_drift={lsc.get('tail_drift')}"
+            )
     elif cmd == "batch":
         base = report.get("baseline") or {}
         print(
@@ -2213,6 +2420,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cl.add_argument("--allow-silent", action="store_true", help="Allow missing or silent audio.")
     cl.add_argument("--strict", action="store_true", help="Treat still_stretch warnings as errors.")
+    cl.add_argument(
+        "--locked-still",
+        action="store_true",
+        help=(
+            "Enable locked-tripod living-still drift check (ENG-08): suppress static-frame errors "
+            "and fail if late 8x8 tile luminance drifts past --drift-threshold."
+        ),
+    )
+    cl.add_argument(
+        "--drift-threshold",
+        type=float,
+        default=LOCKED_STILL_DRIFT_THRESHOLD,
+        help=(
+            f"Max allowed 8x8 tile mean luminance delta (0-255) for --locked-still "
+            f"(default: {LOCKED_STILL_DRIFT_THRESHOLD:g})."
+        ),
+    )
     cl.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON report.")
 
     # voice
@@ -2665,6 +2889,8 @@ def main(argv: list[str] | None = None) -> int:
                 black_min=args.black_min,
                 allow_silent=args.allow_silent,
                 strict=args.strict,
+                locked_still=args.locked_still,
+                drift_threshold=args.drift_threshold,
             )
         elif args.command == "voice":
             if args.window <= 0:

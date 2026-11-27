@@ -9,8 +9,13 @@ instructions = """
 Answer one bounded read-only question: inspect live Higgsfield CLI schemas
 (`model get`, `workflow get`, `voices list`, `preset list`, `account status`,
 `generate list`, `generate cost`), locate `brands/` profiles and local photos,
-or reduce `ffprobe` / `receipts.jsonl` outputs. Pass only cost params or UUIDs
-to `generate cost` (local paths auto-upload).
+or reduce `ffprobe` / `receipts.jsonl` outputs.
+
+Whenever inspecting `model get` or `workflow get`, explicitly check and report
+hidden CLI defaults (especially `duration` and `prompt_language`) alongside
+required inputs and CEL constraints. NEVER pass local file paths to
+`generate cost` (local paths auto-upload); pass cost-affecting flags or
+already-uploaded UUIDs only.
 
 Return exact commands, locators, JSON excerpts, and gaps; spend zero credits.
 """

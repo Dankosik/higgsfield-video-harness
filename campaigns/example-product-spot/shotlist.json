@@ -42,7 +42,7 @@
       "id": "lb_traveler_hand",
       "kind": "character",
       "title": "Anonymous traveler bare hand and matte charcoal wool cuff",
-      "model": "gpt_image_2_6",
+      "model": "seedream_5_5",
       "prompt_file": "prompts/lb_traveler_v1.txt",
       "variants_requested": 3,
       "status": "LOCKED",
@@ -64,7 +64,7 @@
       },
       "test_take_check": null,
       "still": {
-        "model": "gpt_image_2_6",
+        "model": "seedream_5_5",
         "prompt_file": "prompts/s01_still_v1.txt",
         "references": [
           "ref_bag_front",
@@ -73,7 +73,7 @@
         ],
         "status": "LOCKED",
         "version": 1,
-        "estimated_credits": 10,
+        "estimated_credits": 2.5,
         "selected_take": null,
         "selected_job_id": null
       },
@@ -90,7 +90,7 @@
           "lb_traveler_hand"
         ],
         "draft_params": {
-          "resolution": "480p",
+          "resolution": "720p",
           "duration": 5,
           "aspect_ratio": "16:9"
         },
@@ -102,7 +102,7 @@
         },
         "status": "DRAFT",
         "version": 1,
-        "estimated_draft_credits": 15,
+        "estimated_draft_credits": 35,
         "estimated_final_credits": 80,
         "selected_take": null,
         "selected_job_id": null
@@ -118,10 +118,10 @@
       },
       "test_take_check": {
         "risk": "Hand-to-brass-clasp and rolled-handle grip during weighted bench lift may warp fingers, detach or shimmer brushed-brass swivel hardware, or deform matte saddle leather stiffly like plastic.",
-        "pass_check": "In a 5s 480p R4 Risk-First Pilot take, 3x2 contact-sheet inspection confirms anatomically stable five-fingered hands across all frames, attached satin-brushed brass D-rings/clasp without flicker, and realistic downward matte leather crease physics under gravity."
+        "pass_check": "In a 5s draft-mode R4 Risk-First Pilot take, 3x2 contact-sheet inspection confirms anatomically stable five-fingered hands across all frames, attached satin-brushed brass D-rings/clasp without flicker, and realistic downward matte leather crease physics under gravity."
       },
       "still": {
-        "model": "gpt_image_2_6",
+        "model": "seedream_5_5",
         "prompt_file": "prompts/s02_still_v1.txt",
         "references": [
           "ref_bag_front",
@@ -130,13 +130,13 @@
         ],
         "status": "ITERATING",
         "version": 1,
-        "estimated_credits": 10,
+        "estimated_credits": 2.5,
         "selected_take": null,
         "selected_job_id": null
       },
       "video": {
-        "model": "cinematic_studio_video_4_0",
-        "is_workflow": true,
+        "model": "seedance_2_5",
+        "is_workflow": false,
         "mode": "omni_reference",
         "prompt_file": "prompts/s02_video_v1.txt",
         "start_image_from": "s02.still",
@@ -147,7 +147,7 @@
           "lb_traveler_hand"
         ],
         "draft_params": {
-          "resolution": "480p",
+          "draft": true,
           "duration": 5,
           "aspect_ratio": "16:9"
         },
@@ -175,7 +175,7 @@
       },
       "test_take_check": null,
       "still": {
-        "model": "gpt_image_2_6",
+        "model": "seedream_5_5",
         "prompt_file": "prompts/s03_still_v1.txt",
         "references": [
           "ref_bag_profile",
@@ -184,13 +184,13 @@
         ],
         "status": "LOCKED",
         "version": 1,
-        "estimated_credits": 10,
+        "estimated_credits": 2.5,
         "selected_take": null,
         "selected_job_id": null
       },
       "video": {
-        "model": "cinematic_studio_video_4_0",
-        "is_workflow": true,
+        "model": "seedance_2_5",
+        "is_workflow": false,
         "mode": "omni_reference",
         "prompt_file": "prompts/s03_video_v1.txt",
         "start_image_from": "s03.still",
@@ -201,7 +201,7 @@
           "lb_traveler_hand"
         ],
         "draft_params": {
-          "resolution": "480p",
+          "draft": true,
           "duration": 5,
           "aspect_ratio": "16:9"
         },
@@ -228,7 +228,7 @@
       "prompt": "Sparse intimate acoustic chamber score for solo warm cello and soft felt upright piano, slow reflective tempo at 68 BPM, unhurried Nordic morning atmosphere, gentle rising harmonic sustain across 15 seconds, no percussion, no vocals, clean natural decay.",
       "status": "DRAFT",
       "version": 1,
-      "estimated_credits": 10,
+      "estimated_credits": 12.5,
       "selected_file": null,
       "selected_job_id": null
     },

@@ -1,23 +1,35 @@
 ---
 name: video-assembly
-description: "FFmpeg assembly, R3 still animatics, VO timing, and R4/R5 mastering. Use when building still animatics, checking VO windows, cutting FPS-locked clips, mixing to -14 LUFS, applying LUT/grain finishing, exporting stems, or choosing FFmpeg vs. Remotion."
+description: "FFmpeg assembly, R3 animatics, BPM still montages, VO timing, and R4/R5 mastering. Use when building animatics or sub-0.5s still cuts, checking VO windows, cutting FPS-locked clips, mixing to -14 LUFS, applying LUT/grain, exporting stems, or routing FFmpeg vs. Supercomputer vs. local Remotion/resvg."
 ---
 
 # Video Assembly
 
-Canonical owner of `R3` zero-video-credit still animatics, `R4`/`R5` FPS-locked
-FFmpeg editing, VO timing validation, the Audio Level Law, `-14 LUFS` mastering,
-finishing unification (`LUT` / `GRAIN`), unbaked `stems/`, and the FFmpeg vs.
-Remotion compositor boundary.
+Canonical owner of `R3` zero-video-credit still animatics, sub-0.5s BPM `2K`
+still montages, `R4`/`R5` FPS-locked FFmpeg editing, VO timing validation, the
+Audio Level Law, `-14 LUFS` mastering, finishing unification (`LUT` / `GRAIN`),
+unbaked `stems/`, and the 3-tier motion-graphics / compositor boundary.
 
-## `R3` Zero-Video-Credit Still Animatic
+## `R3` Still Animatic & Sub-0.5s `2K` Still Montage
 
-Before requesting `R4` motion budget, record `still.selected_take` (and audio
-`selected_file`) in `shotlist.json` and run `make animatic CAMPAIGN=<slug>`
-(`scripts/assemble.sh --animatic`). Verify `ad-script`'s **mute test**
-([Ad Craft Glossary](../../../docs/ad-craft-glossary.md)) first, then layer VO
-and rough music so the Director judges framing, voice cadence, and cut rhythm
-before spending video credits.
+- **`R3` Zero-Video-Credit Still Animatic:** Before requesting `R4` motion
+  budget, record `still.selected_take` (and audio `selected_file`) in
+  `shotlist.json` and run `make animatic CAMPAIGN=<slug>`
+  (`scripts/assemble.sh --animatic`). Verify `ad-script`'s **mute test**
+  ([Ad Craft Glossary](../../../docs/ad-craft-glossary.md)) first, then layer VO
+  and rough music so the Director judges framing, voice cadence, and cut rhythm
+  before spending video credits.
+- **Sub-0.5s `2K` Still Montage (Production-Ready BPM Pacing):** On hyper-kinetic
+  zero-actor openings where cuts stay under `0.50s` (`<= 12 frames @ 24fps`),
+  `2K` studio plates (verified `0 cr.` Web `Unlimited`, CTA confirmed) shot across 4 locked real studio
+  camera angles (`50mm` frontal, `90°` overhead, heroic low `3/4`, tight `85mm`
+  profile) can ship straight into `R5` without spending video credits—lock cuts
+  to an integer BPM frame grid (e.g., **`120 BPM @ 24fps`**: every
+  beat = `12 frames`, every eighth-note = `6 frames`, accelerating
+  `12 → 8 → 6 → 4` frame pure `0.00s` hard cuts synced to dry percussion/foley)
+  and spend video credits strictly on long-hold hero climax shots (`>= 2.5–4.0s`).
+  Never substitute digital crop-zooms or post `xfade` wipes for real multi-angle
+  plates; see [Motion & Abstract Direction](../video-direction/references/motion-and-abstract.md).
 
 ## `R4` / `R5` FPS Lock, Partial-Take Harvesting & Re-Encoded Assembly
 
@@ -25,7 +37,7 @@ before spending video credits.
   `xfade`/`fadewhite` dissolves on live-action cuts** (dissolves create
   double-exposed AI-slideshow artifacts; use motivated hard cuts or in-camera
   transitions, reserving `fade_out_black_s` strictly for endcard/black tails).
-- **Per-shot editing in `shotlist.json` (`shots[].edit`):**
+- **Per-shot editing in `shotlist.json` (`shots[].edit`) & mixed `still_only`:**
   - `source_clip` + `trim_in` / `trim_out` — **Partial-Take Harvesting** (slice
     the cleanest 2–4s windows out of `batch=2–4` or `15–30s` `Seedance 2.5`
     takes, and trim weak 1–2s handles cleanly).
@@ -35,6 +47,11 @@ before spending video credits.
     per-shot pre-LUT exposure/WB matching so different scenes/engines unify
     before the shared `--lut`.
   - `fade_out_black_s` (`<= 2.0s`) — clean end-of-shot fade to black (endcard).
+  - **Mixed `still_only` + video manifests:** In manifest mode (non-`--animatic`),
+    `scripts/assemble.sh` natively mixes `"still_only": true` shots (or
+    omitted/`null` `video` when `still.selected_take` is set) with regular video
+    shots in one `make assemble` pass (normalizing stills to `TARGET_W×TARGET_H @
+    TARGET_FPS` + silent 48kHz stereo).
 - `scripts/assemble.sh` locks clips to `shotlist.json`'s `fps_target` (falling
   back to Clip 1's probed FPS when omitted), scales with `flags=lanczos`, and
   warns whenever clip resolutions or native FPS diverge across inputs (fix
@@ -85,14 +102,28 @@ before spending video credits.
   OR grade exported `stems/` in DaVinci Resolve (optionally expanding
   `1920×1080` clips via `topaz_hyperion_2_5` 10-bit ProRes/EXR first; see
   [Mastering & Upscaling](../higgsfield-cli/references/mastering-and-upscaling.md)).
-- **FFmpeg vs. Remotion/AE & Temp-File Hygiene:** Stay on pure FFmpeg by
-  default; cross into
-  [`hybrid-motion-graphics`](../hybrid-motion-graphics/SKILL.md) (Remotion /
-  After Effects / HTML Design Sheet) when `brief.md` requires animated kinetic
-  typography, captions, or crisp brand UI overlays. Always write intermediate
-  `1080p` ProRes 4444 overlays (`overlay.mov`) into **`media/work/`** (never
-  `media/exports/`) so gigabyte temp renders stay separate from final client
-  deliverables, and composite **after** LUT/grain via `--overlay`.
+- **3-Tier Motion-Graphics, Compositor Boundary & Temp-File Hygiene:**
+  1. **Tier 1 — Generative Video (FFmpeg assembly):** Stay on pure FFmpeg
+     (`scripts/assemble.sh`) whenever no animated vector UI or kinetic typography
+     is required.
+  2. **Tier 2 — Web `Supercomputer / AI Motion Design` (formerly `Vibe Motion`,
+     `/vibe-motion` → `/supercomputer`):** Fast browser proofs of kinetic type,
+     SaaS UI explainers, and Brand-Kit motion cards (up to `4K`, plus
+     `/ai-motion-designer` for AE + ChatGPT/MCP). **Hard limits:** **no
+     `Unlimited` (`0 cr.`) toggle** and **no pre-generation UI toggle for
+     ProRes, WebM, alpha transparency, or `60fps`**.
+  3. **Tier 3 — Local Deterministic Code / Compositor (`Remotion` /
+     Python+`resvg-py` / After Effects via
+     [`hybrid-motion-graphics`](../hybrid-motion-graphics/SKILL.md)):** `$0`
+     pixel-exact `24fps`/`60fps` UI, Cyrillic/non-Latin typography, captions,
+     multi-sample shutter-blurred SVG brand unfolds, depth/matte type weaving,
+     and `ProRes 4444` alpha overlays. Always write intermediate `1080p` ProRes
+     4444 overlays (`overlay.mov`) into **`media/work/`** (never
+     `media/exports/`) so gigabyte temp renders stay separate from deliverables.
+  - **Hard finishing order (`ENG-07`):** Apply `--lut` and `--grain` strictly
+    **BEFORE** compositing clean overlays or closing brand cards via
+    `scripts/assemble.sh --overlay <file>` (transparent `ProRes 4444`/`WebM`/`PNG`)
+    and `--endcard <file>` (normalized and appended post-LUT/grain).
 
 *Done when:* `animatic.mp4` (`R3`), `draft_cut.mp4` (`R4B`), or `master.mp4` +
 `stems/` (`R5`) builds cleanly with uniform FPS/resolution, VO fits without

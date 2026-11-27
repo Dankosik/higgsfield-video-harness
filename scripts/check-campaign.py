@@ -110,6 +110,18 @@ VIDEO_HARD_IMG_CAPS = {
     "seedance_2_5": 30,
     "cinematic_studio_video_4_0": 30,
 }
+VALID_MSV2_SINGLE_IMAGE_TYPES = frozenset({"2d_motion", "hypermotion", "mixed_media"})
+ENG08_DRIFT_PHRASES = (
+    "breathing daylight",
+    "gliding caustic",
+    "caustic shimmer",
+    "drifting light",
+    "moving shadow",
+    "gliding light",
+)
+ENG08_NEGATION_RE = re.compile(
+    r"(?:^|[\s,(;/:-])(?:zero|no|without|forbid(?:s|ding)?)[ \t:]+(?:(?:any|subtle|visible|watery)[ \t]+)?$"
+)
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 STEERING_BULLET_RE = re.compile(
@@ -247,6 +259,21 @@ def _validate_shotlist(
                         f"(expected one of {sorted(VALID_SUB_FLOWS)})"
                     )
 
+    raw_campaign_ar = data.get("aspect_ratio")
+    campaign_aspect_ratio = raw_campaign_ar.strip() if isinstance(raw_campaign_ar, str) else ""
+
+    def _resolve_prompt_file(val: Any) -> Path | None:
+        if not isinstance(val, str) or not val.strip():
+            return None
+        p = Path(val.strip())
+        if p.is_absolute():
+            return p if p.is_file() else None
+        if (campaign_dir / p).is_file():
+            return campaign_dir / p
+        if (repo_root / p).is_file():
+            return repo_root / p
+        return None
+
     def _check_prompt_file(val: Any, ctx: str) -> None:
         if val is None:
             return
@@ -255,12 +282,46 @@ def _validate_shotlist(
             return
         if not val.strip():
             return
-        p = Path(val.strip())
-        if p.is_absolute():
-            if not p.is_file():
-                errors.append(f"shotlist.json ({ctx}): prompt_file not found: {val}")
-        elif not (campaign_dir / p).is_file() and not (repo_root / p).is_file():
+        if _resolve_prompt_file(val) is None:
             errors.append(f"shotlist.json ({ctx}): prompt_file not found: {val}")
+
+    def _check_still_model_guards(still_obj: dict[str, Any], ctx: str) -> None:
+        s_model = str(still_obj.get("model") or "").strip()
+        s_params = still_obj.get("params") if isinstance(still_obj.get("params"), dict) else {}
+        if s_model == "seedream_v5_pro":
+            for r_label, r_val in (
+                ("resolution", still_obj.get("resolution")),
+                ("params.resolution", s_params.get("resolution")),
+            ):
+                if r_val is not None and str(r_val).strip().lower() == "4k":
+                    errors.append(
+                        f"shotlist.json ({ctx}.{r_label}): 'seedream_v5_pro' live CLI caps "
+                        "resolution at 2k (no '4k'); use 'seedream_5_5' for 4k"
+                    )
+        if s_model == "soul_cast":
+            ar_direct = still_obj.get("aspect_ratio")
+            ar_param = s_params.get("aspect_ratio")
+            if ar_direct is not None and str(ar_direct).strip() != "16:9":
+                errors.append(
+                    f"shotlist.json ({ctx}.aspect_ratio): model 'soul_cast' live CLI only "
+                    f"supports '16:9' aspect_ratio, got {ar_direct!r}"
+                )
+            if ar_param is not None and str(ar_param).strip() != "16:9":
+                errors.append(
+                    f"shotlist.json ({ctx}.params.aspect_ratio): model 'soul_cast' live CLI only "
+                    f"supports '16:9' aspect_ratio, got {ar_param!r}"
+                )
+            if (
+                ar_direct is None
+                and ar_param is None
+                and campaign_aspect_ratio
+                and campaign_aspect_ratio != "16:9"
+            ):
+                errors.append(
+                    f"shotlist.json ({ctx}): model 'soul_cast' live CLI only supports '16:9' "
+                    f"aspect_ratio (inherited campaign aspect_ratio is {campaign_aspect_ratio!r}); "
+                    "set explicit 'aspect_ratio': '16:9' or use another model"
+                )
 
     def _num(val: Any, ctx: str) -> float:
         if val is None:
@@ -416,6 +477,7 @@ def _validate_shotlist(
                 r2_lookbook += _req_num(lb, "estimated_credits", ctx)
 
                 _check_prompt_file(lb.get("prompt_file"), ctx)
+                _check_still_model_guards(lb, ctx)
 
                 if lb_status == "LOCKED":
                     approved_var = lb.get("approved_variant")
@@ -537,47 +599,71 @@ def _validate_shotlist(
                             f"shotlist.json ({ttc_ctx}): missing, empty, or placeholder string '{field}'"
                         )
 
-        still = shot.get("still")
-        if still is not None:
-            if not isinstance(still, dict):
-                errors.append(f"shotlist.json (shot {sid}.still): must be an object or null")
+        still_only_raw = shot.get("still_only")
+        still_only = False
+        if still_only_raw is not None:
+            if not isinstance(still_only_raw, bool):
+                errors.append(
+                    f"shotlist.json (shot {sid}.still_only): must be a boolean, got {still_only_raw!r}"
+                )
             else:
-                _check_status_and_version(still, f"shot {sid}.still", require_status=True)
-                still_sum += _req_num(still, "estimated_credits", f"shot {sid}.still")
-                _check_prompt_file(still.get("prompt_file"), f"shot {sid}.still")
-                _check_ref_id_list(still.get("references"), f"shot {sid}.still.references")
-                _check_ref_id_list(
-                    still.get("image_references"), f"shot {sid}.still.image_references"
+                still_only = still_only_raw
+
+        still = shot.get("still")
+        if still is None:
+            if still_only:
+                errors.append(
+                    f"shotlist.json (shot {sid}.still): 'still_only': true requires a valid 'still' object"
                 )
-                still_ref_count = (
-                    (len(still["references"]) if isinstance(still.get("references"), list) else 0)
-                    + (
-                        len(still["image_references"])
-                        if isinstance(still.get("image_references"), list)
-                        else 0
-                    )
+        elif not isinstance(still, dict):
+            errors.append(f"shotlist.json (shot {sid}.still): must be an object or null")
+        else:
+            _check_status_and_version(still, f"shot {sid}.still", require_status=True)
+            still_sum += _req_num(still, "estimated_credits", f"shot {sid}.still")
+            _check_prompt_file(still.get("prompt_file"), f"shot {sid}.still")
+            _check_ref_id_list(still.get("references"), f"shot {sid}.still.references")
+            _check_ref_id_list(
+                still.get("image_references"), f"shot {sid}.still.image_references"
+            )
+            still_ref_count = (
+                (len(still["references"]) if isinstance(still.get("references"), list) else 0)
+                + (
+                    len(still["image_references"])
+                    if isinstance(still.get("image_references"), list)
+                    else 0
                 )
-                s_model = str(still.get("model") or "").strip()
-                if s_model in STILL_HARD_REF_CAPS and still_ref_count > STILL_HARD_REF_CAPS[s_model]:
+            )
+            s_model = str(still.get("model") or "").strip()
+            if s_model in STILL_HARD_REF_CAPS and still_ref_count > STILL_HARD_REF_CAPS[s_model]:
+                errors.append(
+                    f"shotlist.json (shot {sid}.still): {still_ref_count} image references "
+                    f"exceeds live CEL limit ({STILL_HARD_REF_CAPS[s_model]}) for '{s_model}'"
+                )
+            elif still_ref_count > 6:
+                warnings.append(
+                    f"shotlist.json (shot {sid}.still): {still_ref_count} image references "
+                    "exceeds optimal R3 still budget (3-5, max 6); prune off-screen refs to prevent attention dilution"
+                )
+            if s_model == "text2image_soul_v2" and still_ref_count > 0:
+                s_params = still.get("params") if isinstance(still.get("params"), dict) else {}
+                if still.get("style_id") or s_params.get("style_id"):
                     errors.append(
-                        f"shotlist.json (shot {sid}.still): {still_ref_count} image references "
-                        f"exceeds live CEL limit ({STILL_HARD_REF_CAPS[s_model]}) for '{s_model}'"
+                        f"shotlist.json (shot {sid}.still): 'text2image_soul_v2' live CEL forbids "
+                        "combining 'style_id' with image references"
                     )
-                elif still_ref_count > 6:
-                    warnings.append(
-                        f"shotlist.json (shot {sid}.still): {still_ref_count} image references "
-                        "exceeds optimal R3 still budget (3-5, max 6); prune off-screen refs to prevent attention dilution"
-                    )
-                if s_model == "text2image_soul_v2" and still_ref_count > 0:
-                    s_params = still.get("params") if isinstance(still.get("params"), dict) else {}
-                    if still.get("style_id") or s_params.get("style_id"):
-                        errors.append(
-                            f"shotlist.json (shot {sid}.still): 'text2image_soul_v2' live CEL forbids "
-                            "combining 'style_id' with image references"
-                        )
+            _check_still_model_guards(still, f"shot {sid}.still")
 
         video = shot.get("video")
-        if not isinstance(video, dict):
+        if still_only:
+            if video is not None and not isinstance(video, dict):
+                errors.append(
+                    f"shotlist.json (shot {sid}.video): must be an object or null when 'still_only' is true"
+                )
+            elif isinstance(video, dict):
+                warnings.append(
+                    f"shotlist.json (shot {sid}): 'still_only' is true; ignoring non-null 'video' object (0 video credits counted)"
+                )
+        elif not isinstance(video, dict):
             errors.append(f"shotlist.json (shot {sid}.video): missing or non-object 'video'")
         else:
             _check_status_and_version(video, f"shot {sid}.video", require_status=True)
@@ -587,7 +673,27 @@ def _validate_shotlist(
             video_final_sum += _req_num(
                 video, "estimated_final_credits", f"shot {sid}.video"
             )
-            if video.get("model") == "cinematic_studio_video_4_0":
+            v_model = video.get("model")
+            draft_params = video.get("draft_params") if isinstance(video.get("draft_params"), dict) else {}
+            final_params = video.get("final_params") if isinstance(video.get("final_params"), dict) else {}
+            tier_dicts = [
+                ("video", video),
+                ("draft_params", draft_params),
+                ("final_params", final_params),
+            ]
+            start_src = video.get("start_image_from")
+            if start_src is None:
+                start_src = shot.get("start_image_from")
+            end_src = video.get("end_image_from")
+            if end_src is None:
+                end_src = shot.get("end_image_from")
+            has_start = start_src is not None
+            has_end = end_src is not None
+
+            def _tier_ctx(tier_name: str, _sid: str = sid) -> str:
+                return f"shot {_sid}.video" if tier_name == "video" else f"shot {_sid}.video.{tier_name}"
+
+            if v_model == "cinematic_studio_video_4_0":
                 if video.get("is_workflow") is not True:
                     errors.append(
                         f"shotlist.json (shot {sid}.video): model 'cinematic_studio_video_4_0' "
@@ -599,18 +705,59 @@ def _validate_shotlist(
                         f"shotlist.json (shot {sid}.video): model 'cinematic_studio_video_4_0' "
                         f"requires 'mode' in {sorted(VALID_CS4_MODES)}, got {vmode!r}"
                     )
-                has_frame_anchor = (
-                    shot.get("start_image_from") is not None
-                    or shot.get("end_image_from") is not None
-                    or video.get("start_image_from") is not None
-                    or video.get("end_image_from") is not None
-                )
-                if has_frame_anchor and vmode != "omni_reference":
+                if (has_start or has_end) and vmode != "omni_reference":
                     errors.append(
                         f"shotlist.json (shot {sid}.video): model 'cinematic_studio_video_4_0' "
                         "with non-null start_image_from/end_image_from requires "
                         f"'mode': 'omni_reference', got {vmode!r}"
                     )
+                for tier_name, td in tier_dicts:
+                    t_ctx = _tier_ctx(tier_name)
+                    res = td.get("resolution")
+                    if res is not None and str(res).strip().lower() == "4k":
+                        errors.append(
+                            f"shotlist.json ({t_ctx}): 'cinematic_studio_video_4_0' live CLI caps "
+                            "resolution at 1080p (no '4k'); use 'seedance_2_5' for 4k"
+                        )
+                    for bad_key in ("draft", "draft_job_id"):
+                        if td.get(bad_key) is not None:
+                            errors.append(
+                                f"shotlist.json ({t_ctx}): 'cinematic_studio_video_4_0' live CLI has no "
+                                f"'{bad_key}' parameter; use 'seedance_2_5' for draft -> draft_job_id escalation"
+                            )
+                    cp = td.get("color_palette")
+                    if isinstance(cp, str):
+                        errors.append(
+                            f"shotlist.json ({t_ctx}): 'cinematic_studio_video_4_0' 'color_palette' "
+                            f"must be a JSON object/dict or null in live CLI 1.2.3, got string {cp!r}"
+                        )
+                    lid = td.get("light_id")
+                    lc = td.get("light_custom")
+                    if lid is not None and lid != "custom":
+                        errors.append(
+                            f"shotlist.json ({t_ctx}): 'cinematic_studio_video_4_0' 'light_id' must be "
+                            f"'custom' or omitted in live CLI 1.2.3, got {lid!r}"
+                        )
+                    if lid is not None and lc is not None:
+                        errors.append(
+                            f"shotlist.json ({t_ctx}): 'cinematic_studio_video_4_0' live CEL forbids "
+                            "setting both 'light_id' and 'light_custom' simultaneously"
+                        )
+                for tier_name, td in (("draft_params", draft_params), ("final_params", final_params)):
+                    inherited_conflict = (
+                        video.get("light_id") is not None
+                        and "light_id" not in td
+                        and td.get("light_custom") is not None
+                    ) or (
+                        video.get("light_custom") is not None
+                        and "light_custom" not in td
+                        and td.get("light_id") is not None
+                    )
+                    if inherited_conflict:
+                        errors.append(
+                            f"shotlist.json (shot {sid}.video.{tier_name}): 'cinematic_studio_video_4_0' "
+                            "live CEL forbids setting both 'light_id' and 'light_custom' simultaneously"
+                        )
             _check_prompt_file(video.get("prompt_file"), f"shot {sid}.video")
             _check_ref_id_list(video.get("references"), f"shot {sid}.video.references")
             _check_ref_id_list(
@@ -635,10 +782,38 @@ def _validate_shotlist(
                     errors.append(
                         f"shotlist.json (shot {sid}.video.location_image): references undeclared reference/lookbook id '{loc_img.strip()}'"
                     )
-            v_model = video.get("model")
-            draft_params = video.get("draft_params") if isinstance(video.get("draft_params"), dict) else {}
-            final_params = video.get("final_params") if isinstance(video.get("final_params"), dict) else {}
-            if v_model == "kling3_0_motion_control":
+            if v_model in ("kling4_0", "kling_4_0_flash"):
+                if v_model == "kling4_0":
+                    for tier_name, td in tier_dicts:
+                        t_ctx = _tier_ctx(tier_name)
+                        for bad_key in ("multi_shots", "multi_prompt"):
+                            if td.get(bad_key) is not None:
+                                errors.append(
+                                    f"shotlist.json ({t_ctx}): 'kling4_0' live CLI has no '{bad_key}' "
+                                    "parameter; use 'cinematic_studio_video_v2', 'kling_o3_image_reference', "
+                                    "or 'cinematic_studio_video_3_5' for multi-shot"
+                                )
+                elif v_model == "kling_4_0_flash":
+                    for tier_name, td in tier_dicts:
+                        t_ctx = _tier_ctx(tier_name)
+                        res = td.get("resolution")
+                        if res is not None and str(res).strip().lower() != "720p":
+                            errors.append(
+                                f"shotlist.json ({t_ctx}): 'kling_4_0_flash' live CLI is 720p-only, "
+                                f"got resolution {res!r}; use 'kling4_0' for 1080p/4k"
+                            )
+                if (
+                    isinstance(dur_val, (int, float))
+                    and not isinstance(dur_val, bool)
+                    and float(dur_val) != 10.0
+                    and not any(td.get("duration") is not None for _, td in tier_dicts)
+                ):
+                    warnings.append(
+                        f"shotlist.json (shot {sid}.video): '{v_model}' defaults "
+                        "duration to 10s in live CLI (silently doubling 5s cost); "
+                        "set 'duration' explicitly in draft_params/final_params"
+                    )
+            elif v_model == "kling3_0_motion_control":
                 if video.get("is_workflow") is not True:
                     errors.append(
                         f"shotlist.json (shot {sid}.video): model 'kling3_0_motion_control' "
@@ -661,7 +836,12 @@ def _validate_shotlist(
                         f"shotlist.json (shot {sid}.video): 'kling3_0_motion_control' live CEL requires "
                         f"exactly 1 video_references entry (got {mc_vids})"
                     )
-            elif v_model in ("hf_mult_motion_control", "hf_mult_motion_control_flash"):
+            elif v_model in (
+                "hf_mult_motion_control",
+                "hf_mult_motion_control_flash",
+                "hf_mult_replace_object",
+                "hf_mult_replace_object_flash",
+            ):
                 mc_imgs = len(video["image_references"]) if isinstance(video.get("image_references"), list) else 0
                 mc_vids = len(video["video_references"]) if isinstance(video.get("video_references"), list) else 0
                 if mc_imgs < 1:
@@ -673,6 +853,25 @@ def _validate_shotlist(
                     errors.append(
                         f"shotlist.json (shot {sid}.video): '{v_model}' live CEL requires "
                         f"exactly 1 video_references entry (got {mc_vids})"
+                    )
+                if v_model in ("hf_mult_motion_control_flash", "hf_mult_replace_object_flash"):
+                    for tier_name, td in tier_dicts:
+                        t_ctx = _tier_ctx(tier_name)
+                        res = td.get("resolution")
+                        if res is not None and str(res).strip().lower() != "1080p":
+                            errors.append(
+                                f"shotlist.json ({t_ctx}): '{v_model}' live CLI is 1080p-only, "
+                                f"got resolution {res!r}"
+                            )
+                elif v_model == "hf_mult_motion_control":
+                    warnings.append(
+                        f"shotlist.json (shot {sid}.video): 'hf_mult_motion_control' costs 100 cr. (1080p 5s); "
+                        "pilot 10x cheaper 'hf_mult_motion_control_flash' (Genjutsu Lite, 10 cr. 1080p) first"
+                    )
+                elif v_model == "hf_mult_replace_object":
+                    warnings.append(
+                        f"shotlist.json (shot {sid}.video): 'hf_mult_replace_object' costs 120 cr. (1080p 5s); "
+                        "pilot 10x cheaper 'hf_mult_replace_object_flash' (Genjutsu Lite, 12 cr. 1080p) first"
                     )
             elif v_model == "intone":
                 in_imgs = len(video["image_references"]) if isinstance(video.get("image_references"), list) else 0
@@ -695,29 +894,27 @@ def _validate_shotlist(
                         f"shotlist.json (shot {sid}.video): 'intone' live CEL requires "
                         f"1-6 audio_references, got {in_aud}"
                     )
+                if (
+                    isinstance(dur_val, (int, float))
+                    and not isinstance(dur_val, bool)
+                    and float(dur_val) > 8.0
+                ):
+                    warnings.append(
+                        f"shotlist.json (shot {sid}.video): 'intone' duration_s={dur_val}s exceeds 8s "
+                        "(~18 cr./s at 1080p in CLI); keep CLI clips 3-6s or check Web Unlimited CTA first"
+                    )
             elif v_model in ("cinematic_studio_video_3_5", "cinematic_studio_3_0", "cinematic_studio_video_v2"):
                 if video.get("is_workflow") is not True:
                     errors.append(
                         f"shotlist.json (shot {sid}.video): model '{v_model}' "
                         "requires 'is_workflow': true"
                     )
-                tier_dicts = [
-                    ("video", video),
-                    ("draft_params", draft_params),
-                    ("final_params", final_params),
-                ]
-                has_start_tmp = (
-                    video.get("start_image_from") is not None or shot.get("start_image_from") is not None
-                )
-                has_end_tmp = (
-                    video.get("end_image_from") is not None or shot.get("end_image_from") is not None
-                )
                 cs_media_total = (
                     (len(video["image_references"]) if isinstance(video.get("image_references"), list) else 0)
                     + (len(video["video_references"]) if isinstance(video.get("video_references"), list) else 0)
                     + (len(video["audio_references"]) if isinstance(video.get("audio_references"), list) else 0)
-                    + (1 if has_start_tmp else 0)
-                    + (1 if has_end_tmp else 0)
+                    + (1 if has_start else 0)
+                    + (1 if has_end else 0)
                 )
                 if v_model in ("cinematic_studio_video_3_5", "cinematic_studio_3_0") and cs_media_total > 15:
                     errors.append(
@@ -788,6 +985,17 @@ def _validate_shotlist(
                         f"shotlist.json (shot {sid}.video): 'draw_to_video' live CEL requires "
                         f"exactly 1 sketch image in image_references (got {dtv_imgs})"
                     )
+                dtv_vid_field = video.get("video")
+                has_dtv_vid_field = (
+                    (isinstance(dtv_vid_field, str) and bool(dtv_vid_field.strip()))
+                    or (isinstance(dtv_vid_field, dict) and bool(dtv_vid_field))
+                )
+                dtv_vids = len(video["video_references"]) if isinstance(video.get("video_references"), list) else 0
+                if not has_dtv_vid_field and dtv_vids != 1:
+                    errors.append(
+                        f"shotlist.json (shot {sid}.video): 'draw_to_video' live CLI requires "
+                        f"a source video ('video' or exactly 1 'video_references' entry; got {dtv_vids} video_references)"
+                    )
             elif v_model == "reframe":
                 if video.get("is_workflow") is not True:
                     errors.append(
@@ -800,6 +1008,82 @@ def _validate_shotlist(
                         f"shotlist.json (shot {sid}.video): 'reframe' live CEL requires "
                         f"exactly 1 video_references entry (got {rf_vids})"
                     )
+            elif v_model in ("marketing_studio_v2_video", "marketing_studio_video"):
+                if video.get("is_workflow") is not True:
+                    errors.append(
+                        f"shotlist.json (shot {sid}.video): model '{v_model}' "
+                        "requires 'is_workflow': true"
+                    )
+                if v_model == "marketing_studio_v2_video":
+                    def _count_ms_imgs(obj: dict[str, Any], key: str) -> int:
+                        val = obj.get(key)
+                        if isinstance(val, list):
+                            return len(val)
+                        if isinstance(val, str) and val.strip():
+                            return 1
+                        return 0
+
+                    base_type = str(video.get("type") or "").strip()
+                    base_in = _count_ms_imgs(video, "input_images")
+                    base_ref = _count_ms_imgs(video, "image_references")
+                    has_tier_ms_override = any(
+                        any(k in td for k in ("type", "input_images", "image_references"))
+                        for td in (draft_params, final_params)
+                    )
+                    if has_tier_ms_override:
+                        for tier_name, td in (("draft_params", draft_params), ("final_params", final_params)):
+                            t_type = str(td.get("type") if "type" in td else base_type).strip()
+                            eff_in = _count_ms_imgs(td, "input_images") if "input_images" in td else base_in
+                            eff_ref = _count_ms_imgs(td, "image_references") if "image_references" in td else base_ref
+                            eff_total = eff_in + eff_ref
+                            if t_type in VALID_MSV2_SINGLE_IMAGE_TYPES and eff_total != 1:
+                                errors.append(
+                                    f"shotlist.json (shot {sid}.video.{tier_name}): 'marketing_studio_v2_video' "
+                                    f"type '{t_type}' live CEL requires exactly 1 input_images/image_references "
+                                    f"entry (got {eff_total})"
+                                )
+                    elif base_type in VALID_MSV2_SINGLE_IMAGE_TYPES and (base_in + base_ref) != 1:
+                        errors.append(
+                            f"shotlist.json (shot {sid}.video): 'marketing_studio_v2_video' "
+                            f"type '{base_type}' live CEL requires exactly 1 input_images/image_references "
+                            f"entry (got {base_in + base_ref})"
+                        )
+
+                    saas_720_tiers: list[str] = []
+                    if base_type == "saas_motion" and str(video.get("resolution") or "").strip().lower() == "720p":
+                        saas_720_tiers.append("video")
+                    for tier_name, td in (("draft_params", draft_params), ("final_params", final_params)):
+                        t_type = str(td.get("type") if "type" in td else base_type).strip()
+                        eff_res = td.get("resolution") if "resolution" in td else video.get("resolution")
+                        if (
+                            t_type == "saas_motion"
+                            and eff_res is not None
+                            and str(eff_res).strip().lower() == "720p"
+                            and ("resolution" in td or ("type" in td and "video" not in saas_720_tiers))
+                        ):
+                            saas_720_tiers.append(tier_name)
+                    if saas_720_tiers:
+                        warnings.append(
+                            f"shotlist.json (shot {sid}.video): 'marketing_studio_v2_video' type 'saas_motion' "
+                            f"sets resolution '720p' in {', '.join(saas_720_tiers)}, but '1080p' is the exact "
+                            "same flat 31.1 cr. cost; use '1080p'"
+                        )
+                else:
+                    if (
+                        isinstance(dur_val, (int, float))
+                        and not isinstance(dur_val, bool)
+                        and float(dur_val) != 15.0
+                        and not any(td.get("duration") is not None for _, td in tier_dicts)
+                    ):
+                        warnings.append(
+                            f"shotlist.json (shot {sid}.video): 'marketing_studio_video' defaults "
+                            "duration to 15s in live CLI; set 'duration' explicitly in draft_params/final_params"
+                        )
+            elif v_model == "minimax_h3_max":
+                warnings.append(
+                    f"shotlist.json (shot {sid}.video): 'minimax_h3_max' costs 12.5 cr. and caps at 768p; "
+                    "prefer 'minimax_h3' (10 cr. native 2K)"
+                )
             if v_model in ("cinematic_studio_video_4_0", "seedance_2_5", "intone"):
                 final_res = str(final_params.get("resolution") or "").lower()
                 if final_res in ("1080p", "4k") and final_params.get("bitrate_mode") != "high":
@@ -818,18 +1102,12 @@ def _validate_shotlist(
                 (len(video["image_references"]) if isinstance(video.get("image_references"), list) else 0)
                 + (len(video["references"]) if isinstance(video.get("references"), list) else 0)
             )
-            start_src = video.get("start_image_from")
-            if start_src is None:
-                start_src = shot.get("start_image_from")
-            end_src = video.get("end_image_from")
-            if end_src is None:
-                end_src = shot.get("end_image_from")
-            has_start = start_src is not None
-            has_end = end_src is not None
             if v_model in (
                 "kling3_0_motion_control",
                 "hf_mult_motion_control",
                 "hf_mult_motion_control_flash",
+                "hf_mult_replace_object",
+                "hf_mult_replace_object_flash",
                 "intone",
                 "draw_to_video",
             ) and (has_start or has_end):
@@ -858,6 +1136,11 @@ def _validate_shotlist(
                     f"shotlist.json (shot {sid}.video): {total_video_imgs} total images "
                     "exceeds optimal R4/R5 video budget (2-5); prune off-screen refs to prevent texture bleed and rigid motion"
                 )
+            if v_model == "minimax_h3" and (has_start or has_end) and video_ref_count > 0:
+                errors.append(
+                    f"shotlist.json (shot {sid}.video): 'minimax_h3' live CEL forbids combining "
+                    "start_image/end_image with image_references (mutually exclusive)"
+                )
             if v_model in ("wan3_0", "wan3_0_prime") and (has_start or has_end) and video_ref_count > 0:
                 warnings.append(
                     f"shotlist.json (shot {sid}.video): '{v_model}' live CEL forbids combining "
@@ -873,6 +1156,33 @@ def _validate_shotlist(
                     f"shotlist.json (shot {sid}.video): bridging from '{start_src.strip()}' without "
                     "canonical R2 character/prop/location image_references risks photocopy cascade drift; include original locked IDs"
                 )
+            if (
+                v_model in ("seedance_2_5", "cinematic_studio_video_4_0")
+                and isinstance(start_src, str)
+                and isinstance(end_src, str)
+                and start_src.strip()
+                and start_src.strip() == end_src.strip()
+            ):
+                pf_path = _resolve_prompt_file(video.get("prompt_file"))
+                if pf_path is not None:
+                    try:
+                        prompt_lower = pf_path.read_text(encoding="utf-8").lower()
+                    except OSError:
+                        prompt_lower = ""
+                    hit_phrases: list[str] = []
+                    for phrase in ENG08_DRIFT_PHRASES:
+                        for m in re.finditer(re.escape(phrase), prompt_lower):
+                            prefix = prompt_lower[max(0, m.start() - 40) : m.start()]
+                            if not ENG08_NEGATION_RE.search(prefix):
+                                hit_phrases.append(phrase)
+                                break
+                    if hit_phrases:
+                        warnings.append(
+                            f"shotlist.json (shot {sid}.video): ENG-08 locked-tripod living still "
+                            f"({start_src.strip()} == {end_src.strip()}) prompt '{video.get('prompt_file')}' "
+                            f"contains drift-inducing phrase(s) {hit_phrases}; require stationary daylight "
+                            "and fixed shadow edges to prevent caustic/shadow drift"
+                        )
 
         shot_audio = shot.get("audio")
         if isinstance(shot_audio, dict):
@@ -1020,7 +1330,11 @@ def _validate_shotlist(
                     errors.append(
                         f"shotlist.json (shot {sid}.{field_label}): references unknown shot '{target_id}'"
                     )
-                elif not isinstance(target_shot.get("video"), dict) or not target_shot["video"]:
+                elif (
+                    target_shot.get("still_only") is True
+                    or not isinstance(target_shot.get("video"), dict)
+                    or not target_shot["video"]
+                ):
                     errors.append(
                         f"shotlist.json (shot {sid}.{field_label}): target shot '{target_id}' has no 'video' defined"
                     )

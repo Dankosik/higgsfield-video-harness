@@ -1,17 +1,17 @@
 {
   "_meta": {
-    "description": "Template for capturing opaque Cinema Studio 4.0 preset UUIDs extracted once from a Web Cinema Studio job.",
+    "description": "Template for capturing opaque Cinema Studio 4.0 preset UUIDs and structured lighting/palette payloads extracted once from a Web Cinema Studio job.",
     "copy_to": "docs/cinema-presets.json",
     "extraction_workflow": [
       "1. Configure camera, lens, aperture, genre, era, pacing, lighting, and palette once in https://higgsfield.ai/cinema-studio and run one reference job.",
       "2. Inspect the completed job JSON via: higgsfield generate get <job_id> --json",
-      "3. Copy the resolved UUID fields from the job payload into docs/cinema-presets.json (or campaigns/<slug>/cinema-presets.json) and reference them from shotlist.json."
+      "3. Copy the resolved UUID fields (`camera_*_id`, `genre_id`, `era_id`, `pacing_id`) plus any verbatim `color_palette` object or custom lighting fields (`light`, `light_id`, `light_custom`) into docs/cinema-presets.json (or campaigns/<slug>/cinema-presets.json) and reference them from shotlist.json."
     ],
-    "notes": "Values below are illustrative RFC-4122 documentation UUIDs; replace them with live UUIDs returned by `higgsfield generate get <job_id> --json` for your workspace."
+    "notes": "Values below are schema-valid against `higgsfield workflow get cinematic_studio_video_4_0 --json` (CLI 1.2.3). Replace illustrative RFC-4122 UUIDs and placeholder `light_custom` (`[]`) / `color_palette` (`{}`) containers with live payloads from `higgsfield generate get <job_id> --json`. Note live CLI 1.2.3 constraints: `color_palette` is `object|null` (never a UUID string); `light` is `preset|custom|user|null`, `light_id` only accepts `\"custom\"`, and CEL requires non-null `light_custom` (`array`) whenever `light` or `light_id` is `\"custom\"` (while forbidding `light_custom` for `preset`/`user`, which currently cannot take a non-`custom` `light_id` in CLI). Omit lighting/palette fields (as in `editorial_golden_hour`) to control light and color in prose."
   },
   "presets": {
     "commercial_hero_macro": {
-      "label": "Commercial Hero Macro — Crisp Studio Key",
+      "label": "Commercial Hero Macro — Crisp Studio Key (with custom lighting & palette objects)",
       "extracted_from_job_id": "00000000-0000-4000-8000-000000000001",
       "model": "cinematic_studio_video_4_0",
       "params": {
@@ -21,13 +21,15 @@
         "genre_id": "00000000-0000-4000-8000-000000000104",
         "era_id": "00000000-0000-4000-8000-000000000105",
         "pacing_id": "00000000-0000-4000-8000-000000000106",
-        "light_id": "00000000-0000-4000-8000-000000000107",
-        "color_palette": "00000000-0000-4000-8000-000000000108"
+        "light": "custom",
+        "light_id": "custom",
+        "light_custom": [],
+        "color_palette": {}
       },
-      "visual_notes": "Clean commercial macro look with shallow depth of field, controlled specular key, and neutral highlights."
+      "visual_notes": "Clean commercial macro look with shallow depth of field, controlled specular key, and neutral highlights. Replace `light_custom` (`[]`) and `color_palette` (`{}`) with the verbatim JSON array/object from `higgsfield generate get <job_id> --json`."
     },
     "editorial_golden_hour": {
-      "label": "Editorial Lifestyle — Warm Natural Backlight",
+      "label": "Editorial Lifestyle — Warm Natural Backlight (optics UUIDs only; lighting/palette in prose)",
       "extracted_from_job_id": "00000000-0000-4000-8000-000000000002",
       "model": "cinematic_studio_video_4_0",
       "params": {
@@ -36,11 +38,9 @@
         "camera_aperture_id": "00000000-0000-4000-8000-000000000203",
         "genre_id": "00000000-0000-4000-8000-000000000204",
         "era_id": "00000000-0000-4000-8000-000000000205",
-        "pacing_id": "00000000-0000-4000-8000-000000000206",
-        "light_id": "00000000-0000-4000-8000-000000000207",
-        "color_palette": "00000000-0000-4000-8000-000000000208"
+        "pacing_id": "00000000-0000-4000-8000-000000000206"
       },
-      "visual_notes": "Handheld editorial cadence with warm late-afternoon rim light and filmic shadow roll-off."
+      "visual_notes": "Handheld editorial cadence with warm late-afternoon rim light and filmic shadow roll-off; lighting and palette are intentionally omitted so they are driven cleanly in prompt prose."
     }
   }
 }

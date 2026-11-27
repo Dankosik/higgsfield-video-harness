@@ -26,11 +26,19 @@ Keep under 120 lines; `scripts/check-memory.py` flags `active` rules older than 
   Strong flagship native `1080p` hero motion and multi-beat choreography (`omni_reference`), but can output slightly lifted shadows and lower saturation vs. `wan3_0`; unify contrast and white balance per shot before applying a shared 3D LUT.
   Evidence: `.agents/skills/video-assembly/SKILL.md`
 
+- [ENG-12] model=seedance_2_5 | helpful=0 | harmful=2 | verified=2026-11-27 | status=active
+  On locked-off tripod still-holds (`--start_image == --end_image`), prompting "breathing daylight" or "gliding caustics" on opaque stone hallucinates watery swimming-pool caustic ribbons, curved ghost lens flares, bulb dimming, and inverted/drifting shadows. Lock stationary daylight, constant warm bulb brightness, and fixed shadow edges explicitly (`v2` pattern), limiting micro-motion to 35mm atmosphere, subtle internal glass refraction, and fine grain.
+  Evidence: `.agents/skills/video-direction/references/motion-and-abstract.md`, `scripts/check-campaign.py`, `scripts/qa_media.py` (`--locked-still` drift detector)
+
+- [ENG-13] model=hf_mult_flash_kling4_0 | helpful=3 | harmful=0 | verified=2026-11-27 | status=active
+  Live CLI `1.2.3` pricing & default guardrails: always run `_flash` Genjutsu Lite (`hf_mult_motion_control_flash` `10 cr.`, `hf_mult_replace_object_flash` `12 cr.`, `1080p` only — 10× cheaper than `100/120 cr.` full) first; always pass `--duration 5` on `kling4_0` / `kling_4_0_flash` (CLI defaults to `10` = `37.5 cr.` on `kling4_0` `1080p` SDR); and prefer `seedream_5_5` (`1.5 cr.` `2k` / `2.5 cr.` `4k`) ahead of `seedream_v5_pro` (`2.5 cr.` `2k` max).
+  Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`, `.agents/skills/higgsfield-cli/references/live-workflows.md`
+
 ## Channels & Finishing Pipelines
 
-- [ENG-06] model=higgsfield_web_unlimited | helpful=6 | harmful=0 | verified=2026-11-22 | status=active
-  Default `0 cr.` visual channel on Unlimited-eligible plans; confirm the UI shows `Unlimited` ON / `0 credits` before queuing and log every run via `scripts/hf_guard.py log-web`. Note: some `Ultra` plans are **image-only Unlimited** (video toggle redirects to `/market#image-unlimited`); check once per session and cache so video rounds stop re-probing.
-  Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`
+- [ENG-06] model=higgsfield_web_unlimited | helpful=6 | harmful=1 | verified=2026-11-27 | status=active
+  Default `0 cr.` visual channel strictly for active-rotation models on standard `higgsfield.ai` pages—never accessible on MCP/CLI, Canvas, or Supercomputer. Verify the **Generate CTA button itself flips to `Unlimited` (`0 cr.`)** (model-card badges on `Nano Banana Pro`, `GPT Image 2`, `Seedance 2.5`, and `Kling 3.0` redirect monthly `Ultra` users to `/market` or Annual paywalls; monthly `Ultra` had `0` Unlimited video models on `2026-11-27`); check once per session and cache so video rounds stop re-probing, and log every run via `scripts/hf_guard.py log-web`.
+  Evidence: `.agents/skills/higgsfield-cli/references/model-selection.md`, live `higgsfield.ai` browser audit `2026-11-27`
 
 - [ENG-07] model=remotion_prores4444_endcard | helpful=2 | harmful=0 | verified=2026-11-20 | status=active
   Export transparent brand wordmark/endcards as `1080p` ProRes 4444 (`yuva444p10le`) and composite them **after** creative 3D LUT grading (`assemble.sh --overlay`) so exact brand colors and typography never shift.

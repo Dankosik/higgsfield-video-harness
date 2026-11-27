@@ -750,6 +750,600 @@ class TestCheckCampaign(unittest.TestCase):
             self.assertIn("photocopy", warns_k3, msg=res_k3)
             self.assertIn("single-shot I2V duration (11s > 8s)", warns_k3, msg=res_k3)
             self.assertNotIn("prompt timecodes end at 9s", warns_k3, msg=res_k3)
+    def test_enforces_kling4_0_and_kling_4_0_flash_live_cli_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            # Clean pass: kling4_0 with explicit duration=5, kling_4_0_flash at 720p with duration=5,
+            # and kling4_0 with duration_s=10 omitting duration (matches 10s CLI default)
+            ok_mut = json.loads(json.dumps(base))
+            ok_mut["target_duration_s"] = 20
+            ok_mut["shots"][0]["duration_s"] = 5
+            ok_mut["shots"][0]["video"]["model"] = "kling4_0"
+            ok_mut["shots"][0]["video"]["is_workflow"] = False
+            ok_mut["shots"][0]["video"]["draft_params"] = {"resolution": "720p", "duration": 5}
+            ok_mut["shots"][0]["video"]["final_params"] = {"resolution": "1080p", "duration": 5}
+            ok_mut["shots"][1]["duration_s"] = 5
+            ok_mut["shots"][1]["video"]["model"] = "kling_4_0_flash"
+            ok_mut["shots"][1]["video"]["is_workflow"] = False
+            ok_mut["shots"][1]["video"]["end_image_from"] = None
+            ok_mut["shots"][1]["video"]["draft_params"] = {"resolution": "720p", "duration": 5}
+            ok_mut["shots"][1]["video"]["final_params"] = {"resolution": "720p", "duration": 5}
+            ok_mut["shots"][2]["duration_s"] = 10
+            ok_mut["shots"][2]["video"]["model"] = "kling4_0"
+            ok_mut["shots"][2]["video"]["is_workflow"] = False
+            ok_mut["shots"][2]["video"]["draft_params"] = {"resolution": "720p"}
+            ok_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p"}
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid kling4_0/flash config must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+            warns_ok = " ".join(data_ok.get("warnings", []))
+            self.assertNotIn("defaults duration", warns_ok, msg=data_ok)
+            self.assertNotIn("kling_4_0_flash", warns_ok, msg=data_ok)
+
+            # Warnings when duration is omitted on duration_s != 10
+            warn_mut = json.loads(json.dumps(ok_mut))
+            warn_mut["shots"][0]["video"]["draft_params"] = {"resolution": "720p"}
+            warn_mut["shots"][0]["video"]["final_params"] = {"resolution": "1080p"}
+            warn_mut["shots"][1]["video"]["draft_params"] = {"resolution": "720p"}
+            warn_mut["shots"][1]["video"]["final_params"] = {"resolution": "720p"}
+            shotlist_path.write_text(json.dumps(warn_mut, indent=2), encoding="utf-8")
+
+            code_w, data_w, comb_w = self._run(camp)
+            self.assertEqual(code_w, 0, msg=f"Missing duration warnings must not fail:\n{comb_w}")
+            warns_w = " ".join(data_w.get("warnings", []))
+            self.assertIn("kling4_0", warns_w, msg=data_w)
+            self.assertIn("kling_4_0_flash", warns_w, msg=data_w)
+            self.assertIn("10s", warns_w, msg=data_w)
+
+            # Hard errors: kling4_0 multi_shots / multi_prompt, kling_4_0_flash non-720p resolution
+            bad_mut = json.loads(json.dumps(ok_mut))
+            bad_mut["shots"][0]["video"]["draft_params"]["multi_shots"] = True
+            bad_mut["shots"][0]["video"]["final_params"]["multi_prompt"] = [{"prompt": "beat 1"}]
+            bad_mut["shots"][1]["video"]["final_params"]["resolution"] = "1080p"
+            bad_mut["shots"][1]["video"]["resolution"] = "480p"
+            shotlist_path.write_text(json.dumps(bad_mut, indent=2), encoding="utf-8")
+
+            code_b, data_b, comb_b = self._run(camp)
+            self.assertEqual(code_b, 1, msg=f"Invalid kling4_0/flash params must fail:\n{comb_b}")
+            errs_b = " ".join(data_b.get("errors", []))
+            self.assertIn("multi_shots", errs_b, msg=data_b)
+            self.assertIn("multi_prompt", errs_b, msg=data_b)
+            self.assertIn("kling_4_0_flash", errs_b, msg=data_b)
+            self.assertIn("720p", errs_b, msg=data_b)
+
+    def test_enforces_cinematic_studio_video_4_0_live_cli_1_2_3_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            # Clean pass: CS 4.0 with dict color_palette + light_custom only, and second shot with light_id="custom" only
+            ok_mut = json.loads(json.dumps(base))
+            for idx in (0, 1):
+                ok_mut["shots"][idx]["video"]["model"] = "cinematic_studio_video_4_0"
+                ok_mut["shots"][idx]["video"]["is_workflow"] = True
+                ok_mut["shots"][idx]["video"]["mode"] = "omni_reference"
+                ok_mut["shots"][idx]["video"]["draft_params"] = {"resolution": "720p", "duration": 5}
+                ok_mut["shots"][idx]["video"]["final_params"] = {
+                    "resolution": "1080p",
+                    "bitrate_mode": "high",
+                    "duration": 5,
+                }
+            ok_mut["shots"][0]["video"]["final_params"]["color_palette"] = {"primary": "#8B5A2B"}
+            ok_mut["shots"][0]["video"]["final_params"]["light_custom"] = {"angle": 45}
+            ok_mut["shots"][1]["video"]["final_params"]["color_palette"] = None
+            ok_mut["shots"][1]["video"]["final_params"]["light_id"] = "custom"
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid CS 4.0 config must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+
+            # Fail 1: 4k resolution, draft/draft_job_id, string color_palette, non-"custom" light_id
+            bad1 = json.loads(json.dumps(ok_mut))
+            bad1["shots"][0]["video"]["final_params"]["resolution"] = "4k"
+            bad1["shots"][0]["video"]["draft_params"]["draft"] = True
+            bad1["shots"][0]["video"]["final_params"]["draft_job_id"] = "job-uuid-1"
+            bad1["shots"][1]["video"]["draft_params"]["color_palette"] = "warm_nordic"
+            bad1["shots"][1]["video"]["final_params"]["light_id"] = "preset_warm_01"
+            shotlist_path.write_text(json.dumps(bad1, indent=2), encoding="utf-8")
+
+            code_b1, data_b1, comb_b1 = self._run(camp)
+            self.assertEqual(code_b1, 1, msg=f"Invalid CS 4.0 CLI 1.2.3 params must fail:\n{comb_b1}")
+            errs_b1 = " ".join(data_b1.get("errors", []))
+            self.assertIn("4k", errs_b1, msg=data_b1)
+            self.assertIn("draft", errs_b1, msg=data_b1)
+            self.assertIn("draft_job_id", errs_b1, msg=data_b1)
+            self.assertIn("color_palette", errs_b1, msg=data_b1)
+            self.assertIn("light_id", errs_b1, msg=data_b1)
+
+            # Fail 2: simultaneous light_id + light_custom (both inline and inherited from video -> final_params)
+            bad2 = json.loads(json.dumps(ok_mut))
+            bad2["shots"][0]["video"]["final_params"]["light_id"] = "custom"
+            bad2["shots"][1]["video"]["light_id"] = "custom"
+            bad2["shots"][1]["video"]["final_params"].pop("light_id", None)
+            bad2["shots"][1]["video"]["final_params"]["light_custom"] = {"angle": 30}
+            shotlist_path.write_text(json.dumps(bad2, indent=2), encoding="utf-8")
+
+            code_b2, data_b2, comb_b2 = self._run(camp)
+            self.assertEqual(code_b2, 1, msg=f"Simultaneous light_id + light_custom must fail:\n{comb_b2}")
+            errs_b2 = " ".join(data_b2.get("errors", []))
+            self.assertIn("light_id", errs_b2, msg=data_b2)
+            self.assertIn("light_custom", errs_b2, msg=data_b2)
+            self.assertGreaterEqual(len(data_b2.get("errors", [])), 2, msg=data_b2)
+
+    def test_enforces_draw_to_video_required_video_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+            base["references"].extend(
+                [
+                    {"id": "ref_sketch", "kind": "sketch", "local_path": "media/references/sketch.png", "upload_id": None},
+                    {"id": "ref_src_vid", "kind": "video", "local_path": "media/references/src.mp4", "upload_id": None},
+                    {"id": "ref_src_vid_2", "kind": "video", "local_path": "media/references/src2.mp4", "upload_id": None},
+                ]
+            )
+
+            # Clean pass: shot 0 uses video_references=[1], shot 1 uses explicit video dict
+            ok_mut = json.loads(json.dumps(base))
+            for idx in (0, 1):
+                ok_mut["shots"][idx]["video"]["model"] = "draw_to_video"
+                ok_mut["shots"][idx]["video"]["is_workflow"] = True
+                ok_mut["shots"][idx]["video"]["start_image_from"] = None
+                ok_mut["shots"][idx]["video"]["end_image_from"] = None
+                ok_mut["shots"][idx]["video"]["image_references"] = ["ref_sketch"]
+            ok_mut["shots"][0]["video"]["video_references"] = ["ref_src_vid"]
+            ok_mut["shots"][1]["video"]["video_references"] = []
+            ok_mut["shots"][1]["video"]["video"] = {"id": "uploaded-video-uuid"}
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid draw_to_video configs must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+
+            # Fail: neither video nor video_references, and 2 video_references without video
+            bad_mut = json.loads(json.dumps(ok_mut))
+            bad_mut["shots"][0]["video"]["video_references"] = []
+            bad_mut["shots"][1]["video"].pop("video", None)
+            bad_mut["shots"][1]["video"]["video_references"] = ["ref_src_vid", "ref_src_vid_2"]
+            shotlist_path.write_text(json.dumps(bad_mut, indent=2), encoding="utf-8")
+
+            code_b, data_b, comb_b = self._run(camp)
+            self.assertEqual(code_b, 1, msg=f"draw_to_video missing/extra video must fail:\n{comb_b}")
+            errs_b = " ".join(data_b.get("errors", []))
+            self.assertIn("draw_to_video", errs_b, msg=data_b)
+            self.assertIn("video", errs_b, msg=data_b)
+            self.assertGreaterEqual(len(data_b.get("errors", [])), 2, msg=data_b)
+
+    def test_enforces_genjutsu_replace_object_flash_and_intone_duration_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+            base["references"].extend(
+                [
+                    {"id": "ref_driver_vid", "kind": "video", "local_path": "media/references/act.mp4", "upload_id": None},
+                    {"id": "ref_voice_line", "kind": "audio", "local_path": "media/audio/line.wav", "upload_id": None},
+                ]
+            )
+
+            # Clean pass: both _flash models at 1080p + intone at duration_s=8 (<= 8s boundary)
+            ok_mut = json.loads(json.dumps(base))
+            ok_mut["target_duration_s"] = 18
+            ok_mut["shots"][0]["duration_s"] = 5
+            ok_mut["shots"][0]["video"]["model"] = "hf_mult_replace_object_flash"
+            ok_mut["shots"][0]["video"]["is_workflow"] = False
+            ok_mut["shots"][0]["video"]["start_image_from"] = None
+            ok_mut["shots"][0]["video"]["end_image_from"] = None
+            ok_mut["shots"][0]["video"]["image_references"] = ["ref_bag_front"]
+            ok_mut["shots"][0]["video"]["video_references"] = ["ref_driver_vid"]
+            ok_mut["shots"][0]["video"]["draft_params"] = {"resolution": "1080p"}
+            ok_mut["shots"][0]["video"]["final_params"] = {"resolution": "1080p"}
+
+            ok_mut["shots"][1]["duration_s"] = 5
+            ok_mut["shots"][1]["video"]["model"] = "hf_mult_motion_control_flash"
+            ok_mut["shots"][1]["video"]["is_workflow"] = False
+            ok_mut["shots"][1]["video"]["start_image_from"] = None
+            ok_mut["shots"][1]["video"]["end_image_from"] = None
+            ok_mut["shots"][1]["video"]["image_references"] = ["lb_traveler_hand"]
+            ok_mut["shots"][1]["video"]["video_references"] = ["ref_driver_vid"]
+            ok_mut["shots"][1]["video"]["draft_params"] = {"resolution": "1080p"}
+            ok_mut["shots"][1]["video"]["final_params"] = {"resolution": "1080p"}
+
+            ok_mut["shots"][2]["duration_s"] = 8
+            ok_mut["shots"][2]["video"]["model"] = "intone"
+            ok_mut["shots"][2]["video"]["is_workflow"] = False
+            ok_mut["shots"][2]["video"]["start_image_from"] = None
+            ok_mut["shots"][2]["video"]["end_image_from"] = None
+            ok_mut["shots"][2]["video"]["image_references"] = []
+            ok_mut["shots"][2]["video"]["character_images"] = ["lb_traveler_hand"]
+            ok_mut["shots"][2]["video"]["audio_references"] = ["ref_voice_line"]
+            ok_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p", "bitrate_mode": "high"}
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid Genjutsu _flash + intone<=8s must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+            warns_ok = " ".join(data_ok.get("warnings", []))
+            self.assertNotIn("hf_mult_", warns_ok, msg=data_ok)
+            self.assertNotIn("intone", warns_ok, msg=data_ok)
+
+            # Warnings: full hf_mult_replace_object, full hf_mult_motion_control, intone duration_s > 8
+            warn_mut = json.loads(json.dumps(ok_mut))
+            warn_mut["target_duration_s"] = 19
+            warn_mut["shots"][0]["video"]["model"] = "hf_mult_replace_object"
+            warn_mut["shots"][1]["video"]["model"] = "hf_mult_motion_control"
+            warn_mut["shots"][2]["duration_s"] = 9
+            shotlist_path.write_text(json.dumps(warn_mut, indent=2), encoding="utf-8")
+
+            code_w, data_w, comb_w = self._run(camp)
+            self.assertEqual(code_w, 0, msg=f"Genjutsu/intone cost warnings must not fail:\n{comb_w}")
+            warns_w = " ".join(data_w.get("warnings", []))
+            self.assertIn("hf_mult_replace_object_flash", warns_w, msg=data_w)
+            self.assertIn("hf_mult_motion_control_flash", warns_w, msg=data_w)
+            self.assertIn("intone", warns_w, msg=data_w)
+            self.assertIn("18 cr./s", warns_w, msg=data_w)
+
+            # Hard errors: replace_object missing refs + start_image, _flash non-1080p resolutions
+            bad_mut = json.loads(json.dumps(ok_mut))
+            bad_mut["shots"][0]["video"]["model"] = "hf_mult_replace_object"
+            bad_mut["shots"][0]["video"]["image_references"] = []
+            bad_mut["shots"][0]["video"]["video_references"] = []
+            bad_mut["shots"][0]["video"]["start_image_from"] = "s01.still"
+            bad_mut["shots"][1]["video"]["draft_params"]["resolution"] = "720p"
+            bad_mut["shots"][2]["video"]["model"] = "hf_mult_replace_object_flash"
+            bad_mut["shots"][2]["video"]["image_references"] = ["ref_bag_front"]
+            bad_mut["shots"][2]["video"]["video_references"] = ["ref_driver_vid"]
+            bad_mut["shots"][2]["video"]["draft_params"] = {"resolution": "480p"}
+            bad_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p"}
+            shotlist_path.write_text(json.dumps(bad_mut, indent=2), encoding="utf-8")
+
+            code_b, data_b, comb_b = self._run(camp)
+            self.assertEqual(code_b, 1, msg=f"Invalid Genjutsu CEL / _flash res must fail:\n{comb_b}")
+            errs_b = " ".join(data_b.get("errors", []))
+            self.assertIn("hf_mult_replace_object", errs_b, msg=data_b)
+            self.assertIn("start_image/end_image", errs_b, msg=data_b)
+            self.assertIn("hf_mult_motion_control_flash", errs_b, msg=data_b)
+            self.assertIn("hf_mult_replace_object_flash", errs_b, msg=data_b)
+            self.assertIn("1080p-only", errs_b, msg=data_b)
+
+    def test_enforces_minimax_h3_seedream_v5_pro_and_soul_cast_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            # Clean pass: minimax_h3 with start_image only, minimax_h3 with refs only,
+            # seedream_v5_pro at 2k, soul_cast explicitly 16:9 on a 9:16 campaign,
+            # and cinematic_studio_soul_cast at 9:16
+            ok_mut = json.loads(json.dumps(base))
+            ok_mut["aspect_ratio"] = "9:16"
+            ok_mut["shots"][0]["still"]["model"] = "seedream_v5_pro"
+            ok_mut["shots"][0]["still"]["resolution"] = "2k"
+            ok_mut["shots"][1]["still"]["model"] = "soul_cast"
+            ok_mut["shots"][1]["still"]["aspect_ratio"] = "16:9"
+            ok_mut["shots"][2]["still"]["model"] = "cinematic_studio_soul_cast"
+            ok_mut["shots"][2]["still"]["aspect_ratio"] = "9:16"
+            ok_mut["lookbook"][0]["model"] = "soul_cast"
+            ok_mut["lookbook"][0]["params"] = {"aspect_ratio": "16:9"}
+
+            ok_mut["shots"][0]["video"]["model"] = "minimax_h3"
+            ok_mut["shots"][0]["video"]["is_workflow"] = False
+            ok_mut["shots"][0]["video"]["start_image_from"] = "s01.still"
+            ok_mut["shots"][0]["video"]["end_image_from"] = None
+            ok_mut["shots"][0]["video"]["image_references"] = []
+
+            ok_mut["shots"][1]["video"]["model"] = "minimax_h3"
+            ok_mut["shots"][1]["video"]["is_workflow"] = False
+            ok_mut["shots"][1]["video"]["start_image_from"] = None
+            ok_mut["shots"][1]["video"]["end_image_from"] = None
+            ok_mut["shots"][1]["video"]["image_references"] = ["ref_bag_front"]
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid minimax/seedream/soul_cast must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+
+            # Warning on minimax_h3_max
+            warn_mut = json.loads(json.dumps(ok_mut))
+            warn_mut["shots"][0]["video"]["model"] = "minimax_h3_max"
+            shotlist_path.write_text(json.dumps(warn_mut, indent=2), encoding="utf-8")
+
+            code_w, data_w, comb_w = self._run(camp)
+            self.assertEqual(code_w, 0, msg=f"minimax_h3_max warning must not fail:\n{comb_w}")
+            warns_w = " ".join(data_w.get("warnings", []))
+            self.assertIn("minimax_h3_max", warns_w, msg=data_w)
+            self.assertIn("minimax_h3", warns_w, msg=data_w)
+
+            # Hard errors: minimax_h3 XOR, seedream_v5_pro 4k (direct + params),
+            # soul_cast explicit non-16:9, and soul_cast inheriting campaign 9:16
+            bad_mut = json.loads(json.dumps(ok_mut))
+            bad_mut["shots"][0]["video"]["image_references"] = ["ref_bag_front"]  # + start_image XOR!
+            bad_mut["shots"][0]["still"]["resolution"] = "4k"
+            bad_mut["shots"][1]["still"]["aspect_ratio"] = "9:16"
+            bad_mut["shots"][2]["still"]["model"] = "soul_cast"
+            bad_mut["shots"][2]["still"].pop("aspect_ratio", None)  # inherits campaign 9:16!
+            bad_mut["lookbook"][0]["model"] = "seedream_v5_pro"
+            bad_mut["lookbook"][0]["params"] = {"resolution": "4k"}
+            shotlist_path.write_text(json.dumps(bad_mut, indent=2), encoding="utf-8")
+
+            code_b, data_b, comb_b = self._run(camp)
+            self.assertEqual(code_b, 1, msg=f"Invalid minimax/seedream/soul_cast must fail:\n{comb_b}")
+            errs_b = " ".join(data_b.get("errors", []))
+            self.assertIn("minimax_h3", errs_b, msg=data_b)
+            self.assertIn("seedream_v5_pro", errs_b, msg=data_b)
+            self.assertIn("soul_cast", errs_b, msg=data_b)
+            self.assertIn("16:9", errs_b, msg=data_b)
+            self.assertGreaterEqual(len(data_b.get("errors", [])), 5, msg=data_b)
+
+    def test_enforces_marketing_studio_workflow_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            # Clean pass: v2 2d_motion with 1 input_images, v2 saas_motion 1080p (0 images),
+            # marketing_studio_video with explicit duration=5
+            ok_mut = json.loads(json.dumps(base))
+            ok_mut["shots"][0]["video"]["model"] = "marketing_studio_v2_video"
+            ok_mut["shots"][0]["video"]["is_workflow"] = True
+            ok_mut["shots"][0]["video"]["type"] = "2d_motion"
+            ok_mut["shots"][0]["video"]["input_images"] = ["ref_bag_front"]
+            ok_mut["shots"][0]["video"]["image_references"] = []
+            ok_mut["shots"][0]["video"]["draft_params"] = {"resolution": "720p"}
+            ok_mut["shots"][0]["video"]["final_params"] = {"resolution": "1080p"}
+
+            ok_mut["shots"][1]["video"]["model"] = "marketing_studio_v2_video"
+            ok_mut["shots"][1]["video"]["is_workflow"] = True
+            ok_mut["shots"][1]["video"]["type"] = "saas_motion"
+            ok_mut["shots"][1]["video"]["image_references"] = []
+            ok_mut["shots"][1]["video"]["draft_params"] = {"resolution": "1080p"}
+            ok_mut["shots"][1]["video"]["final_params"] = {"resolution": "1080p"}
+
+            ok_mut["shots"][2]["video"]["model"] = "marketing_studio_video"
+            ok_mut["shots"][2]["video"]["is_workflow"] = True
+            ok_mut["shots"][2]["video"]["draft_params"] = {"duration": 5}
+            ok_mut["shots"][2]["video"]["final_params"] = {"duration": 5}
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid marketing_studio workflows must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+            warns_ok = " ".join(data_ok.get("warnings", []))
+            self.assertNotIn("marketing_studio", warns_ok, msg=data_ok)
+
+            # Clean pass: hypermotion using 1 image_references entry + marketing_studio_video omitting duration when duration_s == 15
+            ok_15 = json.loads(json.dumps(ok_mut))
+            ok_15["target_duration_s"] = 25
+            ok_15["shots"][0]["video"]["type"] = "hypermotion"
+            ok_15["shots"][0]["video"].pop("input_images", None)
+            ok_15["shots"][0]["video"]["image_references"] = ["ref_bag_front"]
+            ok_15["shots"][2]["duration_s"] = 15
+            ok_15["shots"][2]["video"]["draft_params"] = {"resolution": "720p"}
+            ok_15["shots"][2]["video"]["final_params"] = {"resolution": "1080p"}
+            shotlist_path.write_text(json.dumps(ok_15, indent=2), encoding="utf-8")
+
+            code_15, data_15, comb_15 = self._run(camp)
+            self.assertEqual(code_15, 0, msg=f"15s marketing_studio_video + 1 image_references must pass:\n{comb_15}")
+            self.assertNotIn("defaults duration", " ".join(data_15.get("warnings", [])), msg=data_15)
+
+            # Warnings: saas_motion at 720p, and marketing_studio_video omitting duration on 5s shot
+            warn_mut = json.loads(json.dumps(ok_mut))
+            warn_mut["shots"][1]["video"]["draft_params"] = {"resolution": "720p"}
+            warn_mut["shots"][2]["video"]["draft_params"] = {"resolution": "720p"}
+            warn_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p"}
+            shotlist_path.write_text(json.dumps(warn_mut, indent=2), encoding="utf-8")
+
+            code_w, data_w, comb_w = self._run(camp)
+            self.assertEqual(code_w, 0, msg=f"marketing_studio warnings must not fail:\n{comb_w}")
+            warns_w = " ".join(data_w.get("warnings", []))
+            self.assertIn("saas_motion", warns_w, msg=data_w)
+            self.assertIn("31.1 cr.", warns_w, msg=data_w)
+            self.assertIn("marketing_studio_video", warns_w, msg=data_w)
+            self.assertIn("15s", warns_w, msg=data_w)
+
+            # Hard errors: missing is_workflow, hypermotion with 0 imgs, mixed_media with 2 imgs
+            bad_mut = json.loads(json.dumps(ok_mut))
+            bad_mut["shots"][0]["video"]["is_workflow"] = False
+            bad_mut["shots"][0]["video"]["type"] = "hypermotion"
+            bad_mut["shots"][0]["video"]["input_images"] = []
+            bad_mut["shots"][1]["video"]["type"] = None
+            bad_mut["shots"][1]["video"]["final_params"]["type"] = "mixed_media"
+            bad_mut["shots"][1]["video"]["image_references"] = ["ref_bag_front", "lb_traveler_hand"]
+            bad_mut["shots"][2]["video"]["is_workflow"] = False
+            shotlist_path.write_text(json.dumps(bad_mut, indent=2), encoding="utf-8")
+
+            code_b, data_b, comb_b = self._run(camp)
+            self.assertEqual(code_b, 1, msg=f"Invalid marketing_studio configs must fail:\n{comb_b}")
+            errs_b = " ".join(data_b.get("errors", []))
+            self.assertIn("is_workflow", errs_b, msg=data_b)
+            self.assertIn("hypermotion", errs_b, msg=data_b)
+            self.assertIn("mixed_media", errs_b, msg=data_b)
+            self.assertIn("marketing_studio_video", errs_b, msg=data_b)
+
+    def test_eng08_anti_caustic_living_still_prompt_lint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            (camp / "prompts" / "drift_a.txt").write_text(
+                "Locked-off tripod. Subtle breathing daylight and luminous caustic shimmer across stone.\n",
+                encoding="utf-8",
+            )
+            (camp / "prompts" / "drift_b.txt").write_text(
+                "Static camera. Gliding caustics and drifting light cast gentle moving shadows and gliding light.\n",
+                encoding="utf-8",
+            )
+            (camp / "prompts" / "negated_clean.txt").write_text(
+                "Locked-off tripod. Fixed stationary daylight. Zero breathing daylight, no drifting light, "
+                "without caustic shimmer, forbid gliding caustics, zero moving shadows, forbids gliding light.\n",
+                encoding="utf-8",
+            )
+            (camp / "prompts" / "mixed_neg_pos.txt").write_text(
+                "Zero moving shadows on stone left, but subtle moving shadow slides across right wall.\n",
+                encoding="utf-8",
+            )
+
+            # Case 1: Warns on seedance_2_5 and cinematic_studio_video_4_0 when start == end and non-negated drift phrase appears
+            warn_mut = json.loads(json.dumps(base))
+            warn_mut["shots"][0]["video"]["model"] = "seedance_2_5"
+            warn_mut["shots"][0]["video"]["is_workflow"] = False
+            warn_mut["shots"][0]["video"]["mode"] = "omni_reference"
+            warn_mut["shots"][0]["video"]["start_image_from"] = "s01.still"
+            warn_mut["shots"][0]["video"]["end_image_from"] = "s01.still"
+            warn_mut["shots"][0]["video"]["prompt_file"] = "prompts/drift_a.txt"
+            warn_mut["shots"][0]["video"]["draft_params"] = {"draft": True, "duration": 5}
+            warn_mut["shots"][0]["video"]["final_params"] = {"resolution": "1080p", "bitrate_mode": "high", "duration": 5}
+
+            warn_mut["shots"][1]["video"]["model"] = "cinematic_studio_video_4_0"
+            warn_mut["shots"][1]["video"]["is_workflow"] = True
+            warn_mut["shots"][1]["video"]["mode"] = "omni_reference"
+            warn_mut["shots"][1]["video"]["start_image_from"] = "s02.still"
+            warn_mut["shots"][1]["video"]["end_image_from"] = "s02.still"
+            warn_mut["shots"][1]["video"]["prompt_file"] = "prompts/drift_b.txt"
+            warn_mut["shots"][1]["video"]["draft_params"] = {"resolution": "720p", "duration": 5}
+            warn_mut["shots"][1]["video"]["final_params"] = {"resolution": "1080p", "bitrate_mode": "high", "duration": 5}
+
+            warn_mut["shots"][2]["video"]["model"] = "seedance_2_5"
+            warn_mut["shots"][2]["video"]["is_workflow"] = False
+            warn_mut["shots"][2]["video"]["mode"] = "omni_reference"
+            warn_mut["shots"][2]["video"]["start_image_from"] = "s03.still"
+            warn_mut["shots"][2]["video"]["end_image_from"] = "s03.still"
+            warn_mut["shots"][2]["video"]["prompt_file"] = "prompts/mixed_neg_pos.txt"
+            warn_mut["shots"][2]["video"]["draft_params"] = {"draft": True, "duration": 5}
+            warn_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p", "bitrate_mode": "high", "duration": 5}
+            shotlist_path.write_text(json.dumps(warn_mut, indent=2), encoding="utf-8")
+
+            code_w, data_w, comb_w = self._run(camp)
+            self.assertEqual(code_w, 0, msg=f"ENG-08 warnings must not fail:\n{comb_w}")
+            eng08_warns = [w for w in data_w.get("warnings", []) if "ENG-08" in w]
+            self.assertEqual(len(eng08_warns), 3, msg=f"Expected 3 ENG-08 warnings, got: {data_w.get('warnings')}")
+            joined = " ".join(eng08_warns)
+            self.assertIn("breathing daylight", joined)
+            self.assertIn("caustic shimmer", joined)
+            self.assertIn("gliding caustic", joined)
+            self.assertIn("drifting light", joined)
+            self.assertIn("moving shadow", joined)
+            self.assertIn("gliding light", joined)
+
+            # Case 2: Clean pass when all phrases are properly negated
+            neg_mut = json.loads(json.dumps(warn_mut))
+            for idx in (0, 1, 2):
+                neg_mut["shots"][idx]["video"]["prompt_file"] = "prompts/negated_clean.txt"
+            shotlist_path.write_text(json.dumps(neg_mut, indent=2), encoding="utf-8")
+
+            code_n, data_n, comb_n = self._run(camp)
+            self.assertEqual(code_n, 0, msg=f"Negated ENG-08 prompt must pass cleanly:\n{comb_n}")
+            self.assertEqual(
+                [w for w in data_n.get("warnings", []) if "ENG-08" in w],
+                [],
+                msg=f"Negated phrases must not trigger ENG-08 warning: {data_n.get('warnings')}",
+            )
+
+            # Case 3: No ENG-08 warning when start != end, end is null, or model is kling4_0
+            skip_mut = json.loads(json.dumps(warn_mut))
+            skip_mut["shots"][0]["video"]["end_image_from"] = "s02.still"  # start != end
+            skip_mut["shots"][1]["video"]["end_image_from"] = None  # no end_image
+            skip_mut["shots"][2]["video"]["model"] = "kling4_0"
+            skip_mut["shots"][2]["video"]["prompt_file"] = "prompts/drift_a.txt"
+            skip_mut["shots"][2]["video"]["draft_params"] = {"resolution": "720p", "duration": 5}
+            shotlist_path.write_text(json.dumps(skip_mut, indent=2), encoding="utf-8")
+
+            code_s, data_s, comb_s = self._run(camp)
+            self.assertEqual(code_s, 0, msg=f"Non-living-still / other-model must pass:\n{comb_s}")
+            self.assertEqual(
+                [w for w in data_s.get("warnings", []) if "ENG-08" in w],
+                [],
+                msg=f"Unexpected ENG-08 warning: {data_s.get('warnings')}",
+            )
+
+    def test_supports_first_class_still_only_shots_and_preserves_video_requirement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            camp = _copy_campaign_fixture(Path(tmp))
+            shotlist_path = camp / "shotlist.json"
+            base = json.loads(shotlist_path.read_text(encoding="utf-8"))
+
+            # Clean pass: s01 still_only=true with video=null (0.4s), s02 still_only=true with video omitted (0.6s),
+            # s03 normal video shot (5s) referencing s01.still
+            ok_mut = json.loads(json.dumps(base))
+            ok_mut["target_duration_s"] = 6
+            ok_mut["lookbook"][0]["estimated_credits"] = 10
+            ok_mut["audio"]["music"]["estimated_credits"] = 5
+
+            ok_mut["shots"][0]["duration_s"] = 0.4
+            ok_mut["shots"][0]["still_only"] = True
+            ok_mut["shots"][0]["still"]["estimated_credits"] = 2
+            ok_mut["shots"][0]["video"] = None
+
+            ok_mut["shots"][1]["duration_s"] = 0.6
+            ok_mut["shots"][1]["still_only"] = True
+            ok_mut["shots"][1]["still"]["estimated_credits"] = 2
+            ok_mut["shots"][1].pop("video", None)
+
+            ok_mut["shots"][2]["duration_s"] = 5
+            ok_mut["shots"][2]["still"]["estimated_credits"] = 2
+            ok_mut["shots"][2]["video"]["model"] = "seedance_2_5"
+            ok_mut["shots"][2]["video"]["is_workflow"] = False
+            ok_mut["shots"][2]["video"]["mode"] = "omni_reference"
+            ok_mut["shots"][2]["video"]["start_image_from"] = "s01.still"
+            ok_mut["shots"][2]["video"]["end_image_from"] = None
+            ok_mut["shots"][2]["video"]["estimated_draft_credits"] = 15
+            ok_mut["shots"][2]["video"]["estimated_final_credits"] = 80
+            ok_mut["shots"][2]["video"]["draft_params"] = {"draft": True, "duration": 5}
+            ok_mut["shots"][2]["video"]["final_params"] = {"resolution": "1080p", "bitrate_mode": "high", "duration": 5}
+            shotlist_path.write_text(json.dumps(ok_mut, indent=2), encoding="utf-8")
+
+            code_ok, data_ok, comb_ok = self._run(camp)
+            self.assertEqual(code_ok, 0, msg=f"Valid still_only shots must pass:\n{comb_ok}")
+            self.assertTrue(data_ok.get("ok"), msg=data_ok)
+            self.assertEqual(data_ok["budget"]["r4_draft_video"], 15, msg=data_ok)
+            self.assertEqual(data_ok["budget"]["r5_final_video"], 80, msg=data_ok)
+            self.assertEqual(data_ok["budget"]["r3_stills_audio"], 11, msg=data_ok)  # 2+2+2 stills + 5 music
+            self.assertEqual(data_ok["budget"]["planned_total"], 116, msg=data_ok)  # 10+11+15+80
+
+            # Fail 1: still_only=true with still=null must fail
+            no_still = json.loads(json.dumps(ok_mut))
+            no_still["shots"][0]["still"] = None
+            no_still["shots"][2]["video"]["start_image_from"] = "s03.still"
+            shotlist_path.write_text(json.dumps(no_still, indent=2), encoding="utf-8")
+
+            code_ns, data_ns, comb_ns = self._run(camp)
+            self.assertEqual(code_ns, 1, msg=f"still_only=true with null still must fail:\n{comb_ns}")
+            self.assertIn("still_only", " ".join(data_ns.get("errors", [])), msg=data_ns)
+
+            # Fail 2: still_only=false or omitted still requires non-null video dict with exact error
+            no_vid = json.loads(json.dumps(ok_mut))
+            no_vid["shots"][0]["still_only"] = False
+            no_vid["shots"][1].pop("still_only", None)
+            shotlist_path.write_text(json.dumps(no_vid, indent=2), encoding="utf-8")
+
+            code_nv, data_nv, comb_nv = self._run(camp)
+            self.assertEqual(code_nv, 1, msg=f"Missing video without still_only=true must fail:\n{comb_nv}")
+            errs_nv = data_nv.get("errors", [])
+            self.assertEqual(
+                sum(1 for e in errs_nv if "missing or non-object 'video'" in e),
+                2,
+                msg=f"Expected exact missing/non-object video error on both shots, got: {errs_nv}",
+            )
+
+            # Fail 3: non-boolean still_only and .last_frame reference to still_only shot must fail
+            bad_ref = json.loads(json.dumps(ok_mut))
+            bad_ref["shots"][0]["still_only"] = "true"
+            bad_ref["shots"][2]["video"]["start_image_from"] = "s02.last_frame"
+            shotlist_path.write_text(json.dumps(bad_ref, indent=2), encoding="utf-8")
+
+            code_br, data_br, comb_br = self._run(camp)
+            self.assertEqual(code_br, 1, msg=f"Non-bool still_only and .last_frame to still_only must fail:\n{comb_br}")
+            errs_br = " ".join(data_br.get("errors", []))
+            self.assertIn("still_only", errs_br, msg=data_br)
+            self.assertIn("no 'video' defined", errs_br, msg=data_br)
 
 
 if __name__ == "__main__":

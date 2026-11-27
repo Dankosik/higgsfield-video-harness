@@ -34,7 +34,10 @@ Execute pre-Dailies QC in four steps with zero builder rationale (never self-gra
    moving its mouth (silent closed-mouth characters under off-screen VO are
    totally valid!), caption walls (`> 7` words / `> 3.5s` static) or
    audio-vs-caption mismatches (including meaning-inverting mispronunciations),
-   static `> 8s` single-shot fatigue, warped hands/paws/props, or visible
-   jump-cut bridge seams.
+   static `> 8s` single-shot fatigue, warped hands/paws/props, visible jump-cut
+   bridge seams, **Stationary-Light / Caustic Drift** on locked living stills
+   (watery caustic ribbons on opaque stone, dimming practical bulbs, curved
+   ghost lens flares, or drifting/inverted shadows), or **0-text / logo leakage**
+   (garbled typography, UI artifacts, or invented logos in generative video).
 5. Leave creative picks and `LOCKED` sign-off solely to the Director.
 """

@@ -2191,6 +2191,460 @@ class TestHfGuard(unittest.TestCase):
                 msg=f"Expected soul-id get/wait call, got: {calls}",
             )
 
+    def test_preflight_blocks_local_paths_across_media_flags_and_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            camp = tmp / "camp"
+            _write_brief(camp, campaign_cap=100, max_retries=2)
+            mock_bin, env, log_path, _ = self._setup_env(tmp)
+
+            # Create an actual local file with NO media extension to test Path.exists() detection
+            existing_no_ext = tmp / "opaque_local_blob"
+            existing_no_ext.write_bytes(b"RAWBYTES")
+            # Create an existing file inside repo/tmp with a comma in its name
+            existing_comma = tmp / "frame_1,v2"
+            existing_comma.write_bytes(b"RAWBYTES")
+
+            blocked_cases: list[tuple[list[str], str]] = [
+                (["--start_image", "./foo.png"], "--start_image"),
+                (["--start-image", "../frame.webp"], "--start-image"),
+                (["--start_image=./foo.png"], "--start_image"),
+                (["--start-image=./foo.png"], "--start-image"),
+                (["--end_image", "hero_end.jpeg"], "--end_image"),
+                (["--image", "~/Pictures/shot.png"], "--image"),
+                (["--image_references=media/ref.jpg"], "--image_references"),
+                (
+                    [
+                        "--image-references",
+                        "550e8400-e29b-41d4-a716-446655440000,media/ref.jpg",
+                    ],
+                    "--image-references",
+                ),
+                (["--video", "clip.mp4"], "--video"),
+                (["--video_references", "/abs/path/driver.mov"], "--video_references"),
+                (["--audio", "voice.wav"], "--audio"),
+                (["--audio_references=tracks/score.mp3"], "--audio_references"),
+                (["--character_images", '["./hero.png"]'], "--character_images"),
+                (["--character_image", r"media\face.png"], "--character_image"),
+                (["--location_image", "file:///tmp/loc.png"], "--location_image"),
+                (["--input_images", "logo.svg"], "--input_images"),
+                (["--input_video", "mesh.glb"], "--input_video"),
+                (["--product_image", str(existing_no_ext)], "--product_image"),
+                (["--ref_image", str(existing_comma)], "--ref_image"),
+                (["--mask", "./matte.png"], "--mask"),
+                (["--no-color", "--start_image", "./after_bool.png"], "--start_image"),
+            ]
+
+            for extra, expected_flag in blocked_cases:
+                log_path.write_text("", encoding="utf-8")
+                rc, data, err = self._run_guard(
+                    [
+                        "preflight",
+                        "--campaign",
+                        str(camp),
+                        "--shot",
+                        "s01",
+                        "--kind",
+                        "video",
+                        "--round",
+                        "R4",
+                        "--round-cap",
+                        "50",
+                        "--model",
+                        "seedance_2_5",
+                        "--higgsfield-bin",
+                        str(mock_bin),
+                        "--",
+                        *extra,
+                    ],
+                    env,
+                )
+                self.assertEqual(
+                    rc,
+                    2,
+                    msg=f"Expected exit 2 for {extra}: err={err} data={data}",
+                )
+                self.assertFalse(data.get("ok", True), msg=data)
+                self.assertEqual(
+                    data.get("error_code"),
+                    "local_path_in_cost_quote",
+                    msg=f"Unexpected error_code for {extra}: {data}",
+                )
+                self.assertIn(expected_flag, data.get("offending_flags", []), msg=data)
+                self.assertIn(expected_flag, data.get("message", ""), msg=data)
+                self.assertIn("UUID", data.get("message", ""), msg=data)
+                self.assertEqual(
+                    self._read_mock_calls(log_path),
+                    [],
+                    msg=f"preflight must fail closed BEFORE calling CLI for {extra}",
+                )
+
+            # Bare relative filename without slash or extension that exists in CWD
+            proc_cwd = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "preflight",
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    "s01",
+                    "--kind",
+                    "video",
+                    "--round",
+                    "R4",
+                    "--round-cap",
+                    "50",
+                    "--model",
+                    "seedance_2_5",
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                    "--",
+                    "--start_image",
+                    existing_no_ext.name,
+                ],
+                cwd=str(tmp),
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            cwd_data = json.loads(proc_cwd.stdout)
+            self.assertEqual(proc_cwd.returncode, 2, msg=cwd_data)
+            self.assertEqual(cwd_data.get("error_code"), "local_path_in_cost_quote", msg=cwd_data)
+            self.assertEqual(self._read_mock_calls(log_path), [])
+
+            # run --dry-run must also fail closed BEFORE calling generate cost
+            log_path.write_text("", encoding="utf-8")
+            rc_dry, dry_data, _ = self._run_guard(
+                [
+                    "run",
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    "s01",
+                    "--kind",
+                    "video",
+                    "--round",
+                    "R4",
+                    "--round-cap",
+                    "50",
+                    "--model",
+                    "seedance_2_5",
+                    "--dry-run",
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                    "--",
+                    "--start_image",
+                    "./foo.png",
+                ],
+                env,
+            )
+            self.assertEqual(rc_dry, 2, msg=dry_data)
+            self.assertFalse(dry_data.get("ok", True))
+            self.assertEqual(dry_data.get("error_code"), "local_path_in_cost_quote", msg=dry_data)
+            cost_calls = [c for c in self._read_mock_calls(log_path) if "cost" in c]
+            self.assertEqual(cost_calls, [], msg=f"run --dry-run leaked local path to cost: {cost_calls}")
+
+    def test_preflight_allows_uuids_https_urls_and_non_media_prompt_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            camp = tmp / "camp"
+            _write_brief(camp, campaign_cap=100, max_retries=2)
+            mock_bin, env, log_path, _ = self._setup_env(tmp)
+            env["MOCK_HF_COST"] = "12"
+
+            rc, data, err = self._run_guard(
+                [
+                    "preflight",
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    "s01",
+                    "--kind",
+                    "video",
+                    "--round",
+                    "R4",
+                    "--round-cap",
+                    "50",
+                    "--model",
+                    "seedance_2_5",
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                    "--",
+                    "--mode",
+                    "omni_reference",
+                    "--duration",
+                    "5",
+                    "--start_image",
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "--end_image=https://cdn.higgsfield.ai/uploads/end_frame.png",
+                    "--image_references",
+                    "550e8400-e29b-41d4-a716-446655440000,https://cdn.example.com/ref.jpg?w=100,h=200",
+                    "--character_images",
+                    '["550e8400-e29b-41d4-a716-446655440000"]',
+                    "--video_references",
+                    "https://cdn.example.com/driver.mp4",
+                    "--audio_references",
+                    "http://cdn.example.com/vo.wav",
+                    "--prompt",
+                    "Match lighting from ./notes/ref.png shot at f/1.4",
+                ],
+                env,
+            )
+            self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["estimated_credits"], 12)
+            cost_calls = [c for c in self._read_mock_calls(log_path) if c[:2] == ["generate", "cost"]]
+            self.assertEqual(len(cost_calls), 1, msg=cost_calls)
+            self.assertIn("550e8400-e29b-41d4-a716-446655440000", cost_calls[0])
+            self.assertIn("--end_image=https://cdn.higgsfield.ai/uploads/end_frame.png", cost_calls[0])
+
+    def test_run_with_local_path_strips_from_cost_quote_warns_and_preserves_exec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            camp = tmp / "camp"
+            _write_brief(camp, campaign_cap=100, max_retries=2)
+            mock_bin, env, log_path, _ = self._setup_env(tmp)
+            env["MOCK_HF_COST"] = "10"
+
+            local_img = camp / "media" / "references" / "product.png"
+            local_img.parent.mkdir(parents=True, exist_ok=True)
+            local_img.write_bytes(b"\x89PNGMOCK")
+            out_img = camp / "media" / "stills" / "s01-ps.png"
+
+            rc, data, err = self._run_guard(
+                [
+                    "run",
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    "s01",
+                    "--kind",
+                    "still",
+                    "--round",
+                    "R3",
+                    "--round-cap",
+                    "50",
+                    "--command",
+                    "product-photoshoot",
+                    "--model",
+                    "gpt_image_2",
+                    "--out",
+                    str(out_img),
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                    "--",
+                    "--mode",
+                    "lifestyle_scene",
+                    "--image",
+                    str(local_img),
+                ],
+                env,
+            )
+            self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+            self.assertTrue(data["ok"])
+            self.assertTrue(out_img.is_file())
+            self.assertTrue(
+                any("stripped local file path" in w and "--image" in w for w in data.get("warnings", [])),
+                msg=f"Expected local-path strip warning, got: {data.get('warnings')}",
+            )
+
+            calls = self._read_mock_calls(log_path)
+            cost_calls = [c for c in calls if len(c) >= 2 and c[1] == "cost"]
+            create_calls = [c for c in calls if c[:2] == ["product-photoshoot", "create"]]
+            self.assertEqual(len(cost_calls), 1, msg=calls)
+            self.assertNotIn(str(local_img), cost_calls[0], msg=f"Local path leaked to cost: {cost_calls}")
+            self.assertNotIn("--image", cost_calls[0], msg=f"Local-only flag leaked to cost: {cost_calls}")
+            self.assertEqual(len(create_calls), 1, msg=calls)
+            self.assertIn(str(local_img), create_calls[0], msg=f"Legitimate run exec lost --image: {create_calls}")
+
+            # Mixed comma-separated UUID + local path: cost keeps UUID, strips local path
+            log_path.write_text("", encoding="utf-8")
+            out_gen = camp / "media" / "stills" / "s02-gen.png"
+            rc2, data2, err2 = self._run_guard(
+                [
+                    "run",
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    "s02",
+                    "--kind",
+                    "still",
+                    "--round",
+                    "R3",
+                    "--round-cap",
+                    "50",
+                    "--model",
+                    "gpt_image_2_6",
+                    "--out",
+                    str(out_gen),
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                    "--",
+                    "--image_references",
+                    f"550e8400-e29b-41d4-a716-446655440000,{local_img}",
+                ],
+                env,
+            )
+            self.assertEqual(rc2, 0, msg=f"err={err2}\ndata={data2}")
+            calls2 = self._read_mock_calls(log_path)
+            cost_calls2 = [c for c in calls2 if c[:2] == ["generate", "cost"]]
+            self.assertEqual(len(cost_calls2), 1, msg=calls2)
+            self.assertIn("550e8400-e29b-41d4-a716-446655440000", cost_calls2[0])
+            self.assertNotIn(str(local_img), " ".join(cost_calls2[0]))
+
+    def test_hidden_expensive_default_warnings_in_preflight_and_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            camp = tmp / "camp"
+            _write_brief(camp, campaign_cap=500, max_retries=5)
+            mock_bin, env, _, _ = self._setup_env(tmp)
+            env["MOCK_HF_COST"] = "15"
+
+            def _call(
+                subcmd: str,
+                shot: str,
+                model: str,
+                extra: list[str],
+                *,
+                workflow: bool = False,
+            ) -> tuple[int, dict, str]:
+                argv = [
+                    subcmd,
+                    "--campaign",
+                    str(camp),
+                    "--shot",
+                    shot,
+                    "--kind",
+                    "video",
+                    "--round",
+                    "R4",
+                    "--round-cap",
+                    "500",
+                    "--model",
+                    model,
+                    "--higgsfield-bin",
+                    str(mock_bin),
+                ]
+                if workflow:
+                    argv.append("--workflow")
+                if extra:
+                    argv.extend(["--", *extra])
+                return self._run_guard(argv, env)
+
+            # 1. kling4_0 and kling_4_0_flash without --duration -> warn 10s default; disappears with --duration 5
+            for idx, kling_model in enumerate(("kling4_0", "kling_4_0_flash")):
+                for subcmd in ("preflight", "run"):
+                    rc, data, err = _call(subcmd, f"k_warn_{idx}_{subcmd}", kling_model, [])
+                    self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+                    self.assertTrue(data["ok"])
+                    self.assertTrue(
+                        any("10s" in w and "--duration" in w for w in data.get("warnings", [])),
+                        msg=f"Expected 10s duration warning for {kling_model} {subcmd}: {data}",
+                    )
+
+                for dur_args in (["--duration", "5"], ["--duration=5"]):
+                    rc_ok, data_ok, err_ok = _call(
+                        "preflight", f"k_ok_{idx}", kling_model, dur_args
+                    )
+                    self.assertEqual(rc_ok, 0, msg=f"err={err_ok}\ndata={data_ok}")
+                    self.assertEqual(data_ok.get("warnings"), [], msg=data_ok)
+
+            # 2. cinematic_studio_video_3_5 without --duration and --prompt_language -> BOTH warnings fire
+            for subcmd in ("preflight", "run"):
+                rc, data, err = _call(
+                    subcmd, f"cs35_both_{subcmd}", "cinematic_studio_video_3_5", [], workflow=True
+                )
+                self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+                self.assertTrue(data["ok"])
+                warns = data.get("warnings", [])
+                self.assertTrue(
+                    any("15s" in w and "--duration" in w for w in warns),
+                    msg=f"Expected 15s warning for cs3.5 {subcmd}: {warns}",
+                )
+                self.assertTrue(
+                    any("zh" in w and "--prompt_language" in w for w in warns),
+                    msg=f"Expected zh prompt_language warning for cs3.5 {subcmd}: {warns}",
+                )
+
+            # Partial explicit flags on cs3.5: only missing one warns
+            rc_d, data_d, _ = _call(
+                "preflight", "cs35_dur_only", "cinematic_studio_video_3_5", ["--duration", "5"], workflow=True
+            )
+            self.assertEqual(rc_d, 0, msg=data_d)
+            self.assertEqual(len(data_d["warnings"]), 1, msg=data_d["warnings"])
+            self.assertIn("zh", data_d["warnings"][0])
+
+            # Both explicit flags (underscore and hyphen variants) clear ALL warnings on preflight and run
+            for idx, explicit in enumerate(
+                (
+                    ["--duration", "5", "--prompt_language", "en"],
+                    ["--duration=5", "--prompt-language=en"],
+                )
+            ):
+                for subcmd in ("preflight", "run"):
+                    rc_c, data_c, err_c = _call(
+                        subcmd,
+                        f"cs35_clean_{idx}_{subcmd}",
+                        "cinematic_studio_video_3_5",
+                        explicit,
+                        workflow=True,
+                    )
+                    self.assertEqual(rc_c, 0, msg=f"err={err_c}\ndata={data_c}")
+                    self.assertEqual(data_c.get("warnings"), [], msg=data_c)
+
+            # 3. cinematic_studio_3_0 without --prompt_language -> warns zh; clears with underscore/hyphen flag
+            for subcmd in ("preflight", "run"):
+                rc, data, err = _call(
+                    subcmd, f"cs30_warn_{subcmd}", "cinematic_studio_3_0", [], workflow=True
+                )
+                self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+                self.assertTrue(
+                    any("zh" in w and "--prompt_language" in w for w in data.get("warnings", [])),
+                    msg=data,
+                )
+            for lang_args in (["--prompt_language", "en"], ["--prompt-language", "en"]):
+                rc_c, data_c, _ = _call(
+                    "preflight", "cs30_clean", "cinematic_studio_3_0", lang_args, workflow=True
+                )
+                self.assertEqual(rc_c, 0, msg=data_c)
+                self.assertEqual(data_c.get("warnings"), [], msg=data_c)
+
+            # 4. marketing_studio_video without --duration -> warns 15s; clears with --duration 5
+            for subcmd in ("preflight", "run"):
+                rc, data, err = _call(
+                    subcmd, f"msv_warn_{subcmd}", "marketing_studio_video", [], workflow=True
+                )
+                self.assertEqual(rc, 0, msg=f"err={err}\ndata={data}")
+                self.assertTrue(
+                    any("15s" in w and "--duration" in w for w in data.get("warnings", [])),
+                    msg=data,
+                )
+            rc_msv_ok, data_msv_ok, _ = _call(
+                "preflight", "msv_clean", "marketing_studio_video", ["--duration", "5"], workflow=True
+            )
+            self.assertEqual(rc_msv_ok, 0, msg=data_msv_ok)
+            self.assertEqual(data_msv_ok.get("warnings"), [], msg=data_msv_ok)
+
+            # 5. Full hf_mult_motion_control & hf_mult_replace_object warn about 10x cheaper _flash Lite;
+            #    _flash variants emit zero warnings
+            for full_model, flash_model in (
+                ("hf_mult_motion_control", "hf_mult_motion_control_flash"),
+                ("hf_mult_replace_object", "hf_mult_replace_object_flash"),
+            ):
+                for subcmd in ("preflight", "run"):
+                    rc_f, data_f, err_f = _call(subcmd, f"{full_model}_{subcmd}", full_model, [])
+                    self.assertEqual(rc_f, 0, msg=f"err={err_f}\ndata={data_f}")
+                    self.assertTrue(data_f["ok"])
+                    self.assertTrue(
+                        any(flash_model in w and "10x cheaper" in w for w in data_f.get("warnings", [])),
+                        msg=f"Expected _flash Lite warning for {full_model} {subcmd}: {data_f}",
+                    )
+                rc_fl, data_fl, err_fl = _call("preflight", f"{flash_model}_clean", flash_model, [])
+                self.assertEqual(rc_fl, 0, msg=f"err={err_fl}\ndata={data_fl}")
+                self.assertEqual(data_fl.get("warnings"), [], msg=data_fl)
+
 
 if __name__ == "__main__":
     unittest.main()

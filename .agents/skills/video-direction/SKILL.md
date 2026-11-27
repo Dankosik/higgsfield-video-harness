@@ -1,6 +1,6 @@
 ---
 name: video-direction
-description: "Video/still prompt craft, optics, and camera control grounded in Taste Memory. Use when writing Lookbook, still, or motion prompts, choosing optics or camera tools/rigs/speedramps, calibrating per model, fixing prompt/camera defects, or writing anti-IP/VO copy."
+description: "Video/still prompt craft, optics, camera control, and zero-actor motion design grounded in Taste Memory. Use when writing Lookbook/still/motion prompts, directing abstract objects or SaaS/product spots, choosing optics or camera tools/rigs/speedramps, calibrating models, or fixing prompt/camera defects."
 ---
 
 # Video Direction
@@ -16,7 +16,8 @@ Load only the reference needed for the current task:
 | Need | Reference |
 | --- | --- |
 | Observable proxies, `taste-log.md` translation, `%` Palette Lock, Room-Light Integration & Photochemical Lookblock, `R2`/`R3`/`R4`/`R5` blueprints (I2V, Start+End, Omni-Ref, T2V, Multi-Shot, `6s` 2-Shot, `20–30s` Photochemical Multi-Shot/One-Take), Camera Grammar, 4-part lighting, Anti-IP & Phonetic VO | [`references/prompt-patterns.md`](references/prompt-patterns.md) |
-| 8-branch Higgsfield camera tool routing, optics & diagonal FOV playbook (`84°/47°/29°/18°`), physical handheld operator & one-take protocol, rigs/moves, CLI `camera_style`/`speedramp` enums, in-camera transitions & camera failure diagnostics | [`references/camera-control.md`](references/camera-control.md) |
+| 8-branch Higgsfield camera tool routing, optics & diagonal FOV playbook (`84°/47°/29°/18°`), Cinema Studio 4.0 Video vs. Image racks, `3D Jutsu` QR camera, physical handheld & one-take protocol, rigs/moves, CLI `camera_style`/`speedramp` enums, in-camera transitions & camera failure diagnostics | [`references/camera-control.md`](references/camera-control.md) |
+| Zero-actor & abstract motion design (Apple / OpenAI / SaaS): physical material micro-grammar, Stationary-Light Law for pixel-locked swaps, robo-arm & FLF morph blueprints, sub-0.5s `2K` still montages, 5-way tool routing (`Supercomputer / AI Motion Design` ex-Vibe Motion, `3D Jutsu` QR, `marketing_studio_v2_video`, local Remotion/`resvg-py`), & abstract failure fixes | [`references/motion-and-abstract.md`](references/motion-and-abstract.md) |
 | Model-by-model word sweet spots & syntax, language/negation rules, `CRITICAL CORRECTION` retries & prompt/audio/IP failure diagnostics | [`references/model-prompting.md`](references/model-prompting.md) |
 | Optional ultra-lean stylized `720p High` `12–20s` multi-shot `Seedance 2.5` spec pipeline (`PARAMS {}`, HEX palette, `LOCK MANIFEST`, `中文强制锁定`) | [`references/seedance-spec-case-study.md`](references/seedance-spec-case-study.md) |
 
@@ -100,6 +101,16 @@ Load only the reference needed for the current task:
   ([Ad Craft Glossary](../../../docs/ad-craft-glossary.md): `<= 2.0 wps`
   Russian, `<= 2.3 wps` English after subtracting `[PAUSE Ns]`) and spell brand
   names phonetically in VO prompts.
+- **Zero-actor, abstract & motion-design commercials:** Route sculptural
+  product spots, abstract morphs, and Apple/OpenAI/SaaS launch films through
+  [`references/motion-and-abstract.md`](references/motion-and-abstract.md): use
+  physical material micro-grammar + mirrored HEX palettes, enforce the
+  **Stationary-Light Law** on pixel-locked living stills/finish swaps, cut
+  sub-0.5s openings from multi-angle `2K` stills instead of wasting video
+  credits, keep typography/UI outside diffusion (**0-Text Diffusion Boundary**),
+  and split work cleanly across generative video, `3D Jutsu`, Web
+  `Supercomputer / AI Motion Design` (ex-Vibe Motion), and local deterministic
+  compositors.
 - **Anti-IP, typography & One Variable Per Re-roll:** Decompose IP/brands/directors
   into raw materials, silhouette, geometry, and light. Composite fine typography
   and UI in post. On `ITERATING` retries (`v1 -> v2`), change **one failing axis

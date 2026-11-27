@@ -60,29 +60,42 @@ technical or narrative craft:
   passing the **Deletion Test**, `test_take_check`) → `style-bible.md`. Enforce
   the **Shot-Density & Anti-Static-Slideshow Gate**: target **`2.5–5.5s`**
   average shot duration (`10–18` distinct shots/angles for a `45–60s` Short;
-  `6–10` for a `30s` spot). Even when reusing user-supplied stills (e.g. `4–5`
-  stills for a `60s` script), **never stretch 5 stills into `11–15s` single-shot
-  I2V clips** (long AI clips compound hand/prop/face morphing and kill pacing) —
-  derive complementary reaction close-ups, reverse angles, prop/evidence
-  cutaways, or `4K` 2× punch-ins in `R2B`/`R3` first. Commit
-  to one **Production & Prompt
-  Architecture** upfront (`Commercial Hybrid` default, `Cinema Spec`, or
-  optional `Ultra-Lean Stylized Multi-Shot` — see
-  [`video-direction`](../.agents/skills/video-direction/SKILL.md)), plan
-  spatial/cast plates (`R2A`/`R2B`) per
+  `6–10` for a `30s` spot). Even when reusing user-supplied stills, **never
+  stretch 5 stills into `11–15s` single-shot I2V clips** — derive complementary
+  close-ups, reverse angles, cutaways, or `4K` 2× punch-ins in `R2B`/`R3` first.
+  Commit upfront to:
+  1. One **Production Track** (`Live-Action Cinema` vs. `Zero-Actor
+     Sculptural/Product` vs. `Abstract / SaaS Motion Hybrid`, aligned with
+     [Flow Router](flows.md)), assigning per shot whether it uses `Sub-0.5s 2K
+     Still Montage` (`still_only`, `0` video cr.), generative video, `3D (.glb)
+     -> 3D Jutsu (QR camera)`, or `Supercomputer / AI Motion Design` vs. local
+     `Remotion / resvg-py`.
+  2. One **Prompt Architecture** (`Commercial Hybrid` default, `Cinema Spec`, or
+     optional `Ultra-Lean Stylized Multi-Shot` — see
+     [`video-direction`](../.agents/skills/video-direction/SKILL.md)).
+  3. A **1-step active Web `Unlimited` rotation check** (read `ENG-06` in
+     [`studio/engine-memory.md`](../studio/engine-memory.md) or confirm live in
+     browser that the **Generate CTA button itself flips to `Unlimited`
+     (`0 cr.`)**, never trusting promo badges alone; `MCP`/`CLI`, `Canvas`, and
+     `Supercomputer` are excluded) so `R4`/`R5` tickets never assume unavailable
+     video `Unlimited` and route inactive-rotation visuals straight to `Sub-0.5s
+     2K Still Montage` or economy native CLI without empty browser loops.
+  Plan spatial/cast plates (`R2A`/`R2B`) per
   [`video-consistency`](../.agents/skills/video-consistency/SKILL.md), and
   choose each shot's camera route and `R4 → R5` native mastering path per
   [`higgsfield-cli`](../.agents/skills/higgsfield-cli/SKILL.md) so drafts never
   dead-end in `480p` upscaling. Dispatch `evidence-agent` to inspect live
-  schemas and run live `higgsfield generate cost` per round (using cost params
-  or uploaded UUIDs only—never private local file paths, which `generate cost`
-  auto-uploads). Write `shotlist.json` + initial `prompts/` and verify
-  `make campaign-check CAMPAIGN=<slug>` (`R2 + R3 + R4 + R5 <= Campaign cap`).
+  schemas (including hidden `duration` / `prompt_language` defaults) and run
+  live `higgsfield generate cost` per round (using cost params or uploaded UUIDs
+  only—never private local file paths, which `generate cost` auto-uploads).
+  Write `shotlist.json` + initial `prompts/` and verify `make campaign-check
+  CAMPAIGN=<slug>` (`R2 + R3 + R4 + R5 <= Campaign cap`).
 - **Dailies 1B:** Readable beat-by-beat story + clear budget ticket separating
-  the **default `0 cr.` Web `Unlimited` visual path** (via built-in `browser`
-  subagent on `higgsfield.ai`) from non-Unlimited CLI items (e.g., audio/SFX)
-  and the live CLI fallback ceiling + approval ask for uploading local
-  `media/references/` photos (if any) and setting a `--round-cap` only if the
+  **CTA-verified `0 cr.` Web `Unlimited` active-rotation visuals** (and `0`
+  video-cr. `Sub-0.5s 2K Still Montage` shots) from non-Unlimited visuals (e.g.,
+  video when Web Unlimited video is inactive) and CLI-only items (audio/SFX,
+  3D/matting), plus live CLI quotes, approval ask for uploading local
+  `media/references/` photos (if any), and proposed `--round-cap` whenever the
   next round has paid CLI items.
 - *Done when:* Director picks a direction (`1A`), `make campaign-check` passes
   (`1B`), and Director confirms story/direction plus any private reference
@@ -98,8 +111,8 @@ technical or narrative craft:
   (`references[].upload_id`). Organize outputs by entity type under
   `media/lookbook/{characters,locations,props}/`. Generate 2–3 contrasting
   variants (`A`, `B`, `C`, version `1`) per `lookbook[]` entity using
-  **`higgsfield.ai` Web `Unlimited` (`0 cr.`) via the built-in `browser`
-  subagent by default** (per [`higgsfield-cli`](../.agents/skills/higgsfield-cli/SKILL.md)
+  **CTA-verified `higgsfield.ai` Web `Unlimited` (`0 cr.`) via the built-in
+  `browser` subagent by default** (per [`higgsfield-cli`](../.agents/skills/higgsfield-cli/SKILL.md)
   and [`video-consistency`](../.agents/skills/video-consistency/SKILL.md)),
   falling back to parallel `worker-agent` CLI `hf_guard.py run --round R2
   --round-cap <cap>` only when `Unlimited` is unavailable or Director asks for
@@ -117,10 +130,15 @@ technical or narrative craft:
   Masters (`variants_requested: 1`) into only the triggered canonical plates
   (Reverse Walls, multi-angle/state plates, orthographic `#808080` prop plates,
   Character Bible / Expression Calibration plates, or optional `Soul ID` /
-  Kling Elements) via Web `Unlimited` (`0 cr.`) first per
+  Kling Elements) via CTA-verified Web `Unlimited` (`0 cr.`) first per
   [`video-consistency`](../.agents/skills/video-consistency/SKILL.md), slice
   any angle sheets with `make slice-grid`, audit via `reviewer-agent`, upload
   via `hf_guard.py upload --round R2`, and lock their UUIDs before `R3`.
+  - **Optional 3D / Motion Previz Gate:** When storyboards require impossible 3D
+    flythroughs or true `360°` rigid-object orbits, generate a `.glb` mesh via
+    `Hunyuan3D` / `Tripo` / `Meshy` → stage and capture the real camera path in
+    Web `3D Jutsu` via QR smartphone tracking → export the previz MP4 and upload
+    it via `hf_guard.py upload --round R2` for `R4` `@Video1` motion lock.
 - *Done when:* every triggered `R2A` Master and `R2B` Bible plate is `LOCKED`
   with a verified `approved_upload_id` (or `R2` is skipped with `lookbook: []`)
   and Director approves `R3` direction (plus `--round-cap` for any paid CLI
@@ -129,9 +147,9 @@ technical or narrative craft:
 ### R3 — Keyframe Stills & Still Animatic (`0 cr.` Web Unlimited stills + `~5 cr.` audio; `~30–50 cr.` CLI fallback)
 - **Craft:** If `R2` was skipped, upload approved local `media/references/` via
   `hf_guard.py upload --round R3` (`references[].upload_id`). Generate `s01..sN`
-  `2k`/`4k` stills via **Web `Unlimited` (`0 cr.`) first** (falling back to
-  parallel `hf_guard.py run --round R3 --round-cap <cap>` only when unavailable)
-  bound to `LOCKED` UUIDs, `Continuity Lock`, `taste-log.md`, and visible-only
+  `2k`/`4k` stills via **CTA-verified Web `Unlimited` (`0 cr.`) first** (falling
+  back to parallel `hf_guard.py run --round R3 --round-cap <cap>` only when
+  unavailable) bound to `LOCKED` UUIDs, `Continuity Lock`, `taste-log.md`, and visible-only
   reference budgets. Generate enabled VO (verify via `make qa-voice` /
   `scripts/qa_media.py voice <wav> --window <sec> --json`; rewrite copy and
   regenerate on overflow instead of speeding up with `atempo`) and enabled
@@ -145,32 +163,36 @@ technical or narrative craft:
   [`video-narrative`](../.agents/skills/video-narrative/SKILL.md)) on
   `stills_strip.png` + `animatic.mp4` before Dailies 3.
 - **Dailies 3:** `stills_strip.png` + `animatic.mp4` + `R4A` (or `R4` if zero
-  shots carry `test_take_check`) ticket (`0 cr.` Web Unlimited first + CLI
-  fallback quote). Lock approved stills/audio (`status: "LOCKED"`) and upload
-  locked stills via `hf_guard.py upload --round R3`.
+  shots carry `test_take_check`) ticket (CTA-verified `0 cr.` Web `Unlimited` if
+  active in rotation, `0` video-cr. `still_only` montage plates, and exact CLI
+  quote for non-Unlimited video). Lock approved stills/audio (`status: "LOCKED"`)
+  and upload locked stills via `hf_guard.py upload --round R3`.
 - *Done when:* Director locks all required stills and audio after reviewing
   `animatic.mp4`, locked stills are uploaded, and Director approves `R4A`/`R4`
   (plus `--round-cap` if CLI fallback applies).
 
-### R4 — Motion Dailies (`0 cr.` Web Unlimited default; `~45–90 cr.` CLI fallback)
-- **Mandatory craft reads & single-flagship-engine discipline:** Before
-  authoring `R4`/`R5` video prompts, read
+### R4 — Motion Dailies (CTA-verified Web `Unlimited` when active; `~45–90 cr.` CLI fallback)
+- **Mandatory craft reads, single-flagship-engine discipline & draft-to-final routing:**
+  Before authoring `R4`/`R5` video prompts, read
   [`video-direction`](../.agents/skills/video-direction/SKILL.md) (and
   [`video-consistency`](../.agents/skills/video-consistency/SKILL.md) for
   recurring characters/sets); before executing any declared `sub_flows[]` stage
   (e.g. `remotion_overlays`), read that sub-flow's owning `SKILL.md` from
-  [Flow Router](flows.md). Keep one cohesive
-  video engine across a continuous live-action sequence (avoid mixing 3–4
-  disparate engines or starved `mini`/`flash` drafts that produce inconsistent
-  color, lens, and bitrate). Route to Web `Unlimited` (`0 cr.`) first — never
-  silently switch to paid CLI runs without Director approval. For complex
-  `8–30s` multi-shot blocks in CLI, prefer **`seedance_2_5 --draft true` (`480p`
-  latent draft at `3 cr./s`) -> native `1080p`/`4K` `--draft_job_id`** (~64%
-  savings with 1:1 timing lock) over dead-end `480p` pixel upscaling. On
-  dialogue-heavy spots, lock **A-Roll first** before shooting B-Roll, and use
-  post `Voice Change` rather than re-rolling video for vocal tone.
+  [Flow Router](flows.md). Keep one cohesive video engine across a continuous
+  live-action sequence (avoid mixing 3–4 disparate engines or starved
+  `mini`/`flash` drafts that produce inconsistent color, lens, and bitrate). Use
+  Web `Unlimited` (`0 cr.`) when `R1B`/live browser confirms the **Generate CTA
+  button flips to `Unlimited` (`0 cr.`)**; when Web `Unlimited` video is
+  inactive, skip empty browser loops and route directly to `still_only`
+  `Sub-0.5s 2K Still Montage` (`0` video cr.) or approved CLI runs (never
+  silently switch to paid CLI without Director approval). For complex `8–30s`
+  multi-shot blocks in CLI, prefer **`seedance_2_5 --draft true` (`480p` latent
+  draft at `3 cr./s`) -> native `1080p`/`4K` `--draft_job_id`** (~64% savings
+  with 1:1 timing lock) over dead-end `480p` pixel upscaling. On dialogue-heavy
+  spots, lock **A-Roll first** before shooting B-Roll, and use post `Voice
+  Change` rather than re-rolling video for vocal tone.
 - **R4A (Risk-First Pilot):** Shoot shots with `test_take_check != null` first
-  via Web `Unlimited` (`0 cr.`) or approved CLI fallback
+  via CTA-verified Web `Unlimited` (`0 cr.`) or approved CLI
   (`hf_guard.py run --round R4A --round-cap <r4a_cap>`). Probe with
   `scripts/qa_media.py clip <mp4> --sheet <png> --json` (checking temporal
   stutter/jerk telemetry) and dispatch a **fresh `reviewer-agent`** (never
@@ -178,34 +200,35 @@ technical or narrative craft:
   `qa_media.py log-review --qa-report <json> --sheet <png>`. Stop with **Dailies 4A**.
   *(Skip `R4A` only when zero shots carry `test_take_check` and Director
   approved batch `R4` on Dailies 3.)*
-- **R4B (Batch Draft & Cut):** Shoot remaining unlocked shots (using `batch=2`
-  on hard beats and harvesting clean sub-clips via `shots[].edit.trim_in/out` in
-  `scripts/assemble.sh`, never bypassing `assemble.sh` with ad-hoc `xfade`
-  scripts). Probe every clip (`qa_media.py clip` + `qa_media.py batch`), filter
-  via **fresh `reviewer-agent`** watching `.mp4` playback, record
-  `video.selected_take` (and optional `edit` trims/grades) in `shotlist.json`,
-  and assemble `draft_cut.mp4` via `make assemble
+- **R4B (Batch Draft & Cut):** Shoot remaining unlocked shots via CTA-verified
+  Web `Unlimited` (`0 cr.`) or approved CLI (`hf_guard.py run --round R4B
+  --round-cap <r4b_cap>`, using `batch=2` on hard beats and harvesting clean
+  sub-clips via `shots[].edit.trim_in/out` in `scripts/assemble.sh`, never
+  bypassing `assemble.sh` with ad-hoc `xfade` scripts). Probe every clip
+  (`qa_media.py clip` + `qa_media.py batch`), filter via **fresh
+  `reviewer-agent`** watching `.mp4` playback, record `video.selected_take`
+  (and optional `edit` trims/grades) in `shotlist.json`, and assemble
+  `draft_cut.mp4` via `make assemble
   CAMPAIGN=<slug> OUT=campaigns/<slug>/media/exports/draft_cut.mp4` (`-14 LUFS`,
   `<= -1.0 dBTP`). Re-run `reviewer-agent`'s **Blind Viewer Read** on
   `draft_cut.mp4` (arc clarity in motion, `2 + 2` pause room, audio counterpoint)
   before Dailies 4B.
 - **Dailies 4B:** Playable `draft_cut.mp4` + **per-shot native `1080p` upgrade
-  plan** for `R5` (`0 cr.` Web `Unlimited` native `1080p` first, with per-shot
-  CLI fallback prices where `Unlimited` is unavailable; never offer
+  plan** for `R5` (CTA-verified `0 cr.` Web `Unlimited` native `1080p` if
+  active in rotation, or exact per-shot CLI prices; never offer
   `480p → 1080p` pixel upscaling as a shortcut). Mark shots kept as-is (already
-  native `1080p` or no upgrade needed) `LOCKED`; keep shots scheduled for `R5`
-  `1080p` upgrade unlocked (`IN_REVIEW` or `ITERATING`, bumping `version` if
-  prompt/parameters change) so `hf_guard.py` permits `R5`.
+  native `1080p`, `still_only`, or no upgrade needed) `LOCKED`; keep shots
+  scheduled for `R5` `1080p` upgrade unlocked (`IN_REVIEW` or `ITERATING`,
+  bumping `version` if prompt/parameters change) so `hf_guard.py` permits `R5`.
 - *Done when:* pilot passes Dailies 4A (when applicable), Director approves cut
   rhythm in `draft_cut.mp4`, kept shots are `LOCKED`, upgrade targets stay
-  unlocked, and Director approves `R5` (plus `--round-cap` if CLI fallback
-  applies).
+  unlocked, and Director approves `R5` (plus `--round-cap` if CLI applies).
 
-### R5 — Final Master (`1080p`, `0 cr.` Web Unlimited default / approved CLI quote)
+### R5 — Final Master (`1080p`, CTA-verified Web `Unlimited` when active / approved CLI quote)
 - **Craft:** Upgrade **only** Director-approved unlocked shots to **native
-  `1080p`** via Web `Unlimited` (`0 cr.`) first, or approved CLI fallback
-  (`hf_guard.py run --round R5 --round-cap <r5_cap>`) following the mastering
-  runbook and strict Upscale Gate in
+  `1080p`** via CTA-verified Web `Unlimited` (`0 cr.`) when active in rotation,
+  or approved CLI (`hf_guard.py run --round R5 --round-cap <r5_cap>`) following
+  the mastering runbook and strict Upscale Gate in
   [`higgsfield-cli`](../.agents/skills/higgsfield-cli/SKILL.md) (never
   pixel-upscale `480p` drafts). Probe every upgraded clip with
   `qa_media.py clip <mp4> --sheet <sheet.png> --crops <crops.png> --json`, run

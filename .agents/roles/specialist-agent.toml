@@ -17,7 +17,10 @@ Follow the owning skills for each deliverable:
   Deletion Test, non-commercial arcs): `.agents/skills/video-narrative/SKILL.md`.
 - Commercial craft: `ad-references`, `ad-concepts`, `ad-script`, `ad-storyboard`
   and `docs/ad-craft-glossary.md`.
-- Prompts, optics, camera control & anti-IP: `.agents/skills/video-direction/SKILL.md`.
+- Prompts, optics, camera control, zero-actor/abstract motion design, anti-IP,
+  and the 0-Text Diffusion Boundary (never ask video diffusion models to render
+  typography, UI, or brand logos — keep frames text-free and composite in post):
+  `.agents/skills/video-direction/SKILL.md`.
 - Spatial/prop & character/expression continuity: `.agents/skills/video-consistency/SKILL.md`.
 
 Stay strictly read-only: leave file writes, spending, and Dailies selection to

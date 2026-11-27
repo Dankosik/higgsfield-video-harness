@@ -229,15 +229,38 @@ class TestRepoChecks(unittest.TestCase):
                 msg=f"Unexpected legacy path in example campaign: {legacy}",
             )
 
-        # Verify lookbook, workflow schema, and per-asset statuses in shotlist.json
+        # Verify lookbook, photoreal still model, workflow/model schema, and per-asset statuses in shotlist.json
         shotlist = json.loads((EXAMPLE_CAMPAIGN / "shotlist.json").read_text(encoding="utf-8"))
         self.assertIsInstance(shotlist.get("lookbook"), list)
         self.assertGreaterEqual(len(shotlist["lookbook"]), 1)
+        for lb in shotlist["lookbook"]:
+            self.assertEqual(lb["model"], "seedream_5_5", msg="Lookbook must use seedream_5_5 (not gpt_image_2_6)")
         for shot in shotlist["shots"]:
-            self.assertTrue(shot["video"]["is_workflow"], msg=f"{shot['id']} must set is_workflow: true")
-            self.assertEqual(shot["video"]["mode"], "omni_reference", msg=f"{shot['id']} must use omni_reference")
+            self.assertEqual(
+                shot["still"]["model"],
+                "seedream_5_5",
+                msg=f"{shot['id']} still must use seedream_5_5 (not gpt_image_2_6)",
+            )
+            video = shot["video"]
+            self.assertEqual(video["mode"], "omni_reference", msg=f"{shot['id']} must use omni_reference")
+            if video["model"] == "cinematic_studio_video_4_0":
+                self.assertTrue(video["is_workflow"], msg=f"{shot['id']} CS 4.0 must set is_workflow: true")
+                self.assertNotEqual(
+                    video["draft_params"].get("resolution"),
+                    "480p",
+                    msg=f"{shot['id']} CS 4.0 must not dead-end in a 480p draft",
+                )
+            else:
+                self.assertEqual(video["model"], "seedance_2_5", msg=f"{shot['id']} expected seedance_2_5")
+                self.assertFalse(video["is_workflow"], msg=f"{shot['id']} seedance_2_5 must set is_workflow: false")
+                self.assertTrue(
+                    video["draft_params"].get("draft"),
+                    msg=f"{shot['id']} seedance_2_5 draft_params must enable latent draft: true",
+                )
+            self.assertEqual(video["final_params"].get("resolution"), "1080p")
+            self.assertEqual(video["final_params"].get("bitrate_mode"), "high")
             self.assertIn(shot["still"]["status"], ("DRAFT", "IN_REVIEW", "ITERATING", "LOCKED"))
-            self.assertIn(shot["video"]["status"], ("DRAFT", "IN_REVIEW", "ITERATING", "LOCKED"))
+            self.assertIn(video["status"], ("DRAFT", "IN_REVIEW", "ITERATING", "LOCKED"))
 
         style_text = (EXAMPLE_CAMPAIGN / "style-bible.md").read_text(encoding="utf-8")
         self.assertIn("status: active", style_text)

@@ -1213,5 +1213,452 @@ class TestQaAndAssemble(unittest.TestCase):
             self.assertLessEqual(t_data.get("speech_end", 9.0), 1.25, msg=t_data)
 
 
+    def test_non_div4_dims_warning_on_clip_render_and_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            clean_clip = tmp / "clean_320x240.mp4"
+            non_div4_clip = tmp / "odd_322x240.mp4"
+
+            _ffmpeg(
+                "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24:duration=3.5",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3.5",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                "-c:a", "aac", "-b:a", "128k",
+                str(clean_clip),
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", "testsrc2=size=322x240:rate=24:duration=3.5",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3.5",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                "-c:a", "aac", "-b:a", "128k",
+                str(non_div4_clip),
+            )
+
+            rc_ok, data_ok, err_ok = self._run_qa("clip", str(clean_clip))
+            self.assertEqual(rc_ok, 0, msg=f"err={err_ok}\ndata={data_ok}")
+            self.assertTrue(data_ok["ok"], msg=data_ok)
+            self.assertNotIn(
+                "non_div4_dims",
+                {w["code"] for w in data_ok.get("warnings", [])},
+                msg=data_ok,
+            )
+
+            rc_odd, data_odd, err_odd = self._run_qa("clip", str(non_div4_clip))
+            self.assertEqual(rc_odd, 0, msg=f"err={err_odd}\ndata={data_odd}")
+            self.assertTrue(data_odd["ok"], msg=data_odd)
+            div4_warns = [w for w in data_odd.get("warnings", []) if w["code"] == "non_div4_dims"]
+            self.assertEqual(len(div4_warns), 1, msg=data_odd)
+            self.assertEqual((div4_warns[0]["width"], div4_warns[0]["height"]), (322, 240))
+            self.assertIn("topaz_hyperion_2_5", div4_warns[0]["message"])
+            self.assertIn("1918x1080", div4_warns[0]["message"])
+
+            rc_rn, data_rn, err_rn = self._run_qa(
+                "render", str(non_div4_clip), "--no-loudness-check"
+            )
+            self.assertEqual(rc_rn, 0, msg=f"err={err_rn}\ndata={data_rn}")
+            self.assertTrue(data_rn["ok"], msg=data_rn)
+            self.assertIn(
+                "non_div4_dims",
+                {w["code"] for w in data_rn.get("warnings", [])},
+                msg=data_rn,
+            )
+
+            rc_bt, data_bt, err_bt = self._run_qa("batch", str(non_div4_clip))
+            self.assertEqual(rc_bt, 0, msg=f"err={err_bt}\ndata={data_bt}")
+            self.assertIn(
+                "non_div4_dims",
+                {w["code"] for w in data_bt.get("warnings", [])},
+                msg=data_bt,
+            )
+
+    def test_locked_still_drift_detector_passes_clean_and_fails_drifting_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            clean_still = tmp / "locked_clean.mp4"
+            drifting_still = tmp / "locked_drift.mp4"
+
+            # Clean locked living still: uniform matte stone plate + subtle 35mm grain only
+            _ffmpeg(
+                "-f", "lavfi", "-i", "color=c=0x88847C:s=320x180:r=24:d=4.0",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4.0",
+                "-vf", "noise=c0s=2:c0f=t+u",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                "-c:a", "aac", "-b:a", "128k",
+                str(clean_still),
+            )
+
+            # Drifting locked still: first 2.6s clean, final third adds bright flare bar + shifts luminance
+            _ffmpeg(
+                "-f", "lavfi", "-i", "color=c=0x606060:s=320x180:r=24:d=2.6",
+                "-f", "lavfi", "-i", "color=c=0x484848:s=320x180:r=24:d=1.4",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4.0",
+                "-filter_complex",
+                "[0:v]noise=c0s=2:c0f=t+u[v0];"
+                "[1:v]drawbox=x=20:y=20:w=280:h=50:color=0xFFFFFF:t=fill,noise=c0s=2:c0f=t+u[v1];"
+                "[v0][v1]concat=n=2:v=1:a=0[v]",
+                "-map", "[v]", "-map", "2:a",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                "-c:a", "aac", "-b:a", "128k",
+                str(drifting_still),
+            )
+
+            # Without --locked-still, a clean locked still fails normal static-clip checks
+            rc_default, data_default, _ = self._run_qa("clip", str(clean_still))
+            self.assertEqual(rc_default, 1, msg=data_default)
+            self.assertIn(
+                "fully_static_clip",
+                {e["code"] for e in data_default.get("errors", [])},
+                msg=data_default,
+            )
+
+            # With --locked-still, clean living still suppresses static errors and passes drift check
+            rc_ok, data_ok, err_ok = self._run_qa("clip", str(clean_still), "--locked-still")
+            self.assertEqual(rc_ok, 0, msg=f"err={err_ok}\ndata={data_ok}")
+            self.assertTrue(data_ok["ok"], msg=data_ok)
+            self.assertEqual(data_ok["errors"], [], msg=data_ok)
+            lsc_ok = data_ok.get("locked_still_check") or {}
+            self.assertTrue(lsc_ok.get("enabled"), msg=data_ok)
+            self.assertTrue(lsc_ok.get("passed"), msg=data_ok)
+            self.assertLess(lsc_ok.get("max_tile_drift", 999.0), 5.0, msg=lsc_ok)
+            self.assertLess(lsc_ok.get("tail_drift", 999.0), 5.0, msg=lsc_ok)
+            self.assertLess(lsc_ok.get("mean_luma_shift", 999.0), 3.0, msg=lsc_ok)
+
+            # Drifting final third must FAIL mechanically with locked_still_drift
+            rc_bad, data_bad, err_bad = self._run_qa("clip", str(drifting_still), "--locked-still")
+            self.assertEqual(rc_bad, 1, msg=f"Expected locked_still_drift failure, err={err_bad}\ndata={data_bad}")
+            self.assertFalse(data_bad["ok"], msg=data_bad)
+            err_codes = {e["code"] for e in data_bad.get("errors", [])}
+            self.assertIn("locked_still_drift", err_codes, msg=data_bad)
+            self.assertNotIn("fully_static_clip", err_codes, msg=data_bad)
+            lsc_bad = data_bad.get("locked_still_check") or {}
+            self.assertTrue(lsc_bad.get("enabled"), msg=data_bad)
+            self.assertFalse(lsc_bad.get("passed"), msg=data_bad)
+            self.assertGreater(lsc_bad.get("max_tile_drift", 0.0), 12.0, msg=lsc_bad)
+            self.assertGreater(lsc_bad.get("tail_drift", 0.0), 12.0, msg=lsc_bad)
+
+            # Invalid --drift-threshold fails cleanly with exit code 2
+            rc_inv, _, _ = self._run_qa(
+                "clip", str(clean_still), "--locked-still", "--drift-threshold", "0"
+            )
+            self.assertEqual(rc_inv, 2)
+
+    def test_assemble_mixed_still_only_and_video_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            camp = Path(tmp_str)
+            stills_dir = camp / "media" / "stills"
+            shots_dir = camp / "media" / "shots"
+            audio_dir = camp / "media" / "audio"
+            stems_dir = camp / "media" / "exports" / "stems"
+            stills_dir.mkdir(parents=True)
+            shots_dir.mkdir(parents=True)
+            audio_dir.mkdir(parents=True)
+
+            still1 = stills_dir / "s01.png"
+            clip2 = shots_dir / "s02.mp4"
+            still3 = stills_dir / "s03.png"
+            music = audio_dir / "score.wav"
+            master = camp / "media" / "exports" / "mixed_master.mp4"
+
+            # Shot 1 is a 640x360 still_only plate; Shot 2 is a 320x180@24fps video clip
+            _ffmpeg(
+                "-f", "lavfi", "-i", "color=c=0x8B5A2B:s=640x360:d=1",
+                "-frames:v", "1", str(still1),
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3.0",
+                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                str(clip2),
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", "color=c=0x2B4C7E:s=640x360:d=1",
+                "-frames:v", "1", str(still3),
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=4.5",
+                "-af", "volume=-14dB", str(music),
+            )
+
+            manifest = {
+                "schema_version": 1,
+                "campaign": "mixed-still-video-test",
+                "aspect_ratio": "16:9",
+                "target_duration_s": 4,
+                "fps_target": 24,
+                "shots": [
+                    {
+                        "id": "s01",
+                        "duration_s": 0.5,
+                        "still_only": True,
+                        "still": {"selected_take": "media/stills/s01.png"},
+                        "video": None,
+                    },
+                    {
+                        "id": "s02",
+                        "duration_s": 3.0,
+                        "video": {"selected_take": "media/shots/s02.mp4"},
+                    },
+                    {
+                        "id": "s03",
+                        "duration_s": 0.5,
+                        "still": {"selected_take": "media/stills/s03.png"},
+                        "video": None,
+                    },
+                ],
+                "audio": {
+                    "music": {"enabled": True, "selected_file": "media/audio/score.wav"},
+                    "voiceover": {"enabled": False, "tracks": []},
+                },
+            }
+            manifest_path = camp / "shotlist.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+            proc = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--campaign", str(camp),
+                    "--manifest", str(manifest_path),
+                    "--out", str(master),
+                    "--stems-dir", str(stems_dir),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(
+                proc.returncode,
+                0,
+                msg=f"mixed still+video assemble failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
+            )
+            self.assertTrue(master.is_file())
+            for stem in ("clip_01.mp4", "clip_02.mp4", "clip_03.mp4", "video_only.mp4", "music.wav"):
+                self.assertTrue((stems_dir / stem).is_file(), msg=f"Missing stem {stem}")
+
+            probe = _ffprobe_json(master)
+            vstream = next(s for s in probe["streams"] if s.get("codec_type") == "video")
+            # Probing prefers first video clip (320x180) even though shot 1 is still_only (640x360)
+            self.assertEqual((int(vstream["width"]), int(vstream["height"])), (320, 180))
+            dur = float(probe["format"]["duration"])
+            self.assertGreaterEqual(dur, 3.7)
+            self.assertLessEqual(dur, 4.3)
+
+            # Verify all-still manifest (no video clips) falls back cleanly to still 1 + fps_target
+            all_still_manifest = camp / "all_still_shotlist.json"
+            all_still_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "campaign": "all-still-test",
+                        "aspect_ratio": "16:9",
+                        "fps_target": 30,
+                        "shots": [
+                            {
+                                "id": "s01",
+                                "duration_s": 0.5,
+                                "still_only": True,
+                                "still": {"selected_take": "media/stills/s01.png"},
+                            },
+                            {
+                                "id": "s02",
+                                "duration_s": 0.5,
+                                "still_only": True,
+                                "still": {"selected_take": "media/stills/s03.png"},
+                            },
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            all_still_out = camp / "media" / "exports" / "all_still.mp4"
+            proc_stills = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--campaign", str(camp),
+                    "--manifest", str(all_still_manifest),
+                    "--allow-silent",
+                    "--out", str(all_still_out),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(
+                proc_stills.returncode,
+                0,
+                msg=f"all-still manifest failed:\nstdout={proc_stills.stdout}\nstderr={proc_stills.stderr}",
+            )
+            st_probe = _ffprobe_json(all_still_out)
+            st_v = next(s for s in st_probe["streams"] if s.get("codec_type") == "video")
+            self.assertEqual((int(st_v["width"]), int(st_v["height"])), (640, 360))
+            rate_s = st_v.get("avg_frame_rate") or "0/1"
+            num_s, _, den_s = rate_s.partition("/")
+            self.assertAlmostEqual(float(num_s) / float(den_s or "1"), 30.0, delta=0.5)
+
+    def test_assemble_post_lut_overlay_and_endcard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_str:
+            tmp = Path(tmp_str)
+            clip1 = tmp / "main.mp4"
+            lut_file = tmp / "invert.cube"
+            ov_mov = tmp / "overlay_prores4444.mov"
+            ov_png = tmp / "overlay_halfres.png"
+            endcard = tmp / "endcard.mp4"
+            out_mov = tmp / "master_mov_endcard.mp4"
+            out_png = tmp / "master_png.mp4"
+
+            # Exact 2x2x2 inverting LUT: (R,G,B) -> (1-R, 1-G, 1-B)
+            lut_file.write_text(
+                "\n".join(
+                    [
+                        'TITLE "InvertTest"',
+                        "LUT_3D_SIZE 2",
+                        "1.00 1.00 1.00",
+                        "0.00 1.00 1.00",
+                        "1.00 0.00 1.00",
+                        "0.00 0.00 1.00",
+                        "1.00 1.00 0.00",
+                        "0.00 1.00 0.00",
+                        "1.00 0.00 0.00",
+                        "0.00 0.00 0.00",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            # Main 3s clip: moving testsrc2 with a solid dark-red patch at x=180..300, y=40..140
+            _ffmpeg(
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3.0",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3.0",
+                "-vf", "drawbox=x=180:y=40:w=120:h=100:color=0xCC2020:t=fill",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                "-c:a", "aac", "-b:a", "128k",
+                str(clip1),
+            )
+
+            # Transparent ProRes 4444 overlay with pure green box at x=20..100, y=20..100
+            ov_mov_src = (
+                "color=c=black:s=320x180:r=24:d=3.0,format=rgba,"
+                "geq=r='0':g='if(between(X,20,100)*between(Y,20,100),255,0)':"
+                "b='0':a='if(between(X,20,100)*between(Y,20,100),255,0)'"
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", ov_mov_src,
+                "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
+                str(ov_mov),
+            )
+
+            # Half-res transparent PNG overlay (160x90 -> scaled to 320x180) with pure green box at x=10..50, y=10..50
+            ov_png_src = (
+                "color=c=black:s=160x90:d=1,format=rgba,"
+                "geq=r='0':g='if(between(X,10,50)*between(Y,10,50),255,0)':"
+                "b='0':a='if(between(X,10,50)*between(Y,10,50),255,0)'"
+            )
+            _ffmpeg(
+                "-f", "lavfi", "-i", ov_png_src,
+                "-frames:v", "1",
+                str(ov_png),
+            )
+
+            # 2s video-only brand endcard in pure royal blue (20, 50, 235)
+            _ffmpeg(
+                "-f", "lavfi", "-i", "color=c=0x1432EB:s=320x180:r=24:d=2.0",
+                "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
+                str(endcard),
+            )
+
+            def _sample_rgb(mp4: Path, ts: float, x: int, y: int) -> tuple[int, int, int]:
+                raw = subprocess.run(
+                    [
+                        "ffmpeg", "-v", "error", "-ss", f"{ts:.2f}", "-i", str(mp4),
+                        "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+                    ],
+                    capture_output=True, check=True,
+                ).stdout
+                off = (y * 320 + x) * 3
+                return raw[off], raw[off + 1], raw[off + 2]
+
+            # Test 1: --lut + --grain + ProRes 4444 --overlay + --endcard
+            proc_mov = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--clips", str(clip1),
+                    "--lut", str(lut_file),
+                    "--grain", "3",
+                    "--overlay", str(ov_mov),
+                    "--endcard", str(endcard),
+                    "--out", str(out_mov),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(
+                proc_mov.returncode,
+                0,
+                msg=f"post-LUT ProRes overlay + endcard failed:\nstdout={proc_mov.stdout}\nstderr={proc_mov.stderr}",
+            )
+            self.assertTrue(out_mov.is_file())
+            probe_mov = _ffprobe_json(out_mov)
+            dur_mov = float(probe_mov["format"]["duration"])
+            self.assertGreaterEqual(dur_mov, 4.7)
+            self.assertLessEqual(dur_mov, 5.3)
+
+            # Overlay pixel (60, 60) at t=1.5s MUST stay pure green (untouched by inverting LUT)
+            r_ov, g_ov, b_ov = _sample_rgb(out_mov, 1.5, 60, 60)
+            self.assertLess(r_ov, 40, msg=f"Overlay green shifted by LUT: {(r_ov, g_ov, b_ov)}")
+            self.assertGreater(g_ov, 210, msg=f"Overlay green shifted by LUT: {(r_ov, g_ov, b_ov)}")
+            self.assertLess(b_ov, 40, msg=f"Overlay green shifted by LUT: {(r_ov, g_ov, b_ov)}")
+
+            # Background red patch (240, 90) at t=1.5s MUST be inverted to cyan by LUT (alpha preserved!)
+            r_bg, g_bg, b_bg = _sample_rgb(out_mov, 1.5, 240, 90)
+            self.assertLess(r_bg, 95, msg=f"Background red patch not inverted by LUT: {(r_bg, g_bg, b_bg)}")
+            self.assertGreater(g_bg, 170, msg=f"Background red patch not inverted by LUT: {(r_bg, g_bg, b_bg)}")
+            self.assertGreater(b_bg, 170, msg=f"Background red patch not inverted by LUT: {(r_bg, g_bg, b_bg)}")
+
+            # Endcard pixel (160, 90) at t=4.0s MUST stay pure royal blue (untouched by inverting LUT)
+            r_ec, g_ec, b_ec = _sample_rgb(out_mov, 4.0, 160, 90)
+            self.assertLess(r_ec, 60, msg=f"Endcard blue shifted by LUT: {(r_ec, g_ec, b_ec)}")
+            self.assertLess(g_ec, 90, msg=f"Endcard blue shifted by LUT: {(r_ec, g_ec, b_ec)}")
+            self.assertGreater(b_ec, 190, msg=f"Endcard blue shifted by LUT: {(r_ec, g_ec, b_ec)}")
+
+            # Test 2: --lut + half-res PNG --overlay holds cleanly across full duration and scales to TARGET_W:TARGET_H
+            proc_png = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--clips", str(clip1),
+                    "--lut", str(lut_file),
+                    "--overlay", str(ov_png),
+                    "--out", str(out_png),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(
+                proc_png.returncode,
+                0,
+                msg=f"post-LUT PNG overlay failed:\nstdout={proc_png.stdout}\nstderr={proc_png.stderr}",
+            )
+            r_p, g_p, b_p = _sample_rgb(out_png, 1.5, 60, 60)
+            self.assertLess(r_p, 40, msg=f"PNG overlay green shifted/missing at t=1.5s: {(r_p, g_p, b_p)}")
+            self.assertGreater(g_p, 210, msg=f"PNG overlay green shifted/missing at t=1.5s: {(r_p, g_p, b_p)}")
+            self.assertLess(b_p, 40, msg=f"PNG overlay green shifted/missing at t=1.5s: {(r_p, g_p, b_p)}")
+
+            # Missing --overlay / --endcard files fail with exit code 2
+            proc_bad_ov = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--clips", str(clip1),
+                    "--overlay", str(tmp / "missing.mov"),
+                    "--out", str(tmp / "bad_ov.mp4"),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc_bad_ov.returncode, 2)
+
+            proc_bad_ec = subprocess.run(
+                [
+                    "bash", str(ASSEMBLE_SCRIPT),
+                    "--clips", str(clip1),
+                    "--endcard", str(tmp / "missing.mp4"),
+                    "--out", str(tmp / "bad_ec.mp4"),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc_bad_ec.returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

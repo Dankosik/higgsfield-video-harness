@@ -21,6 +21,7 @@ GRAIN=""
 OVERLAY=""
 BPM=""
 DUCK_MUSIC=0
+ENDCARD=""
 NO_LOUDNORM=0
 ALLOW_SILENT=0
 
@@ -44,7 +45,8 @@ Options:
   --duck-music              Sidechain-duck background music gently whenever --vo is speaking
   --lut <file.cube>         Optional 3D LUT file (.cube/.3dl) applied across concatenated video for unified grade
   --grain <float>           Optional subtle shared temporal 35mm grain strength (1..20, e.g. 3-5)
-  --overlay <file>          Optional transparent RGBA/ProRes 4444 overlay composited AFTER LUT and grain
+  --overlay <file>          Optional alpha overlay (ProRes 4444/WebM/PNG) composited strictly AFTER --lut/--grain
+  --endcard <file>          Optional closing brand card video/ProRes appended strictly AFTER --lut/--grain
   --bpm <float>             Optional music BPM for absolute beat-grid alignment diagnostics
   --no-loudnorm             Skip -14 LUFS / -1.5 dBTP loudness normalization pass
   --allow-silent            Explicitly allow a silent master in final qa_media.py render check
@@ -137,6 +139,11 @@ while [[ $# -gt 0 ]]; do
       DUCK_MUSIC=1
       shift
       ;;
+    --endcard)
+      [[ $# -ge 2 ]] || die "--endcard requires a value"
+      ENDCARD="$2"
+      shift 2
+      ;;
     --no-loudnorm)
       NO_LOUDNORM=1
       shift
@@ -201,6 +208,12 @@ if not math.isfinite(val) or val <= 0.0 or val > 20.0:
 print(f"{val:g}")
 PY
   )" || die "--grain must be a number in (0, 20], got: $GRAIN"
+fi
+if [[ -n "$OVERLAY" ]]; then
+  [[ -f "$OVERLAY" ]] || die "--overlay file not found: $OVERLAY"
+fi
+if [[ -n "$ENDCARD" ]]; then
+  [[ -f "$ENDCARD" ]] || die "--endcard file not found: $ENDCARD"
 fi
 
 WORKDIR=""
@@ -580,16 +593,20 @@ PY
     NORM_CLIPS+=("$OUT_CLIP")
   done
 else
-  # Resolve ordered clips + optional per-shot edit specs (Bash 3.2 compatible)
-  CLIPS=()
-  CLIP_EDIT_JSONS=()
+  # Resolve ordered timeline entries + optional per-shot edit specs (Bash 3.2 compatible)
+  ENTRY_KINDS=()
+  ENTRY_PATHS=()
+  ENTRY_DURS=()
+  ENTRY_EDIT_JSONS=()
   if [[ -n "$CLIPS_ARG" ]]; then
     IFS=',' read -r -a RAW_CLIPS <<< "$CLIPS_ARG"
     for item in "${RAW_CLIPS[@]}"; do
       trimmed="$("$PYTHON_BIN" -c 'import sys; print(sys.argv[1].strip())' "$item")"
       if [[ -n "$trimmed" ]]; then
-        CLIPS+=("$trimmed")
-        CLIP_EDIT_JSONS+=("{}")
+        ENTRY_KINDS+=("VIDEO")
+        ENTRY_PATHS+=("$trimmed")
+        ENTRY_DURS+=("")
+        ENTRY_EDIT_JSONS+=("{}")
       fi
     done
   else
@@ -598,8 +615,8 @@ else
     if [[ -z "$BASE_DIR" ]]; then
       BASE_DIR="$(dirname "$MANIFEST")"
     fi
-    RESOLVED_CLIPS="$("$PYTHON_BIN" - "$MANIFEST" "$BASE_DIR" <<'PY'
-import json, pathlib, sys
+    RESOLVED_ENTRIES="$("$PYTHON_BIN" - "$MANIFEST" "$BASE_DIR" <<'PY'
+import json, math, pathlib, sys
 manifest_path = pathlib.Path(sys.argv[1])
 base_dir = pathlib.Path(sys.argv[2])
 data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -607,76 +624,127 @@ shots = data.get("shots")
 if not isinstance(shots, list) or not shots:
     print("ERROR: manifest contains no shots", file=sys.stderr)
     sys.exit(2)
+
+def resolve_rel(raw_path: str) -> pathlib.Path:
+    p = pathlib.Path(raw_path)
+    if p.is_absolute():
+        return p
+    if (base_dir / p).is_file():
+        return base_dir / p
+    return p
+
 for shot in shots:
     if not isinstance(shot, dict):
         continue
+    shot_id = shot.get("id")
+    still_only = shot.get("still_only") is True
     vid = shot.get("video")
+    still_obj = shot.get("still")
+
+    use_still = still_only or (
+        vid is None
+        and isinstance(still_obj, dict)
+        and bool(still_obj.get("selected_take"))
+    )
+
+    if use_still:
+        if not isinstance(still_obj, dict) or not still_obj.get("selected_take"):
+            print(
+                f"ERROR: still_only shot '{shot_id}' has no still.selected_take",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        dur = shot.get("duration_s", 5)
+        try:
+            dur_f = float(dur)
+        except (TypeError, ValueError):
+            print(
+                f"ERROR: shot '{shot_id}' has invalid duration_s: {dur!r}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if not math.isfinite(dur_f) or dur_f <= 0.0:
+            print(
+                f"ERROR: shot '{shot_id}' duration_s must be positive",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        resolved = resolve_rel(str(still_obj["selected_take"]))
+        print(f"STILL\t{resolved}\t{dur_f:.4f}\t{{}}")
+        continue
+
     if not isinstance(vid, dict):
         continue
     edit = shot.get("edit") if isinstance(shot.get("edit"), dict) else {}
     take = edit.get("source_clip") or vid.get("selected_take")
     if not take:
-        print(f"ERROR: shot '{shot.get('id')}' has no video.selected_take (or edit.source_clip)", file=sys.stderr)
+        print(f"ERROR: shot '{shot_id}' has no video.selected_take (or edit.source_clip)", file=sys.stderr)
         sys.exit(2)
-    p = pathlib.Path(take)
-    if p.is_absolute():
-        resolved = p
-    elif (base_dir / p).is_file():
-        resolved = base_dir / p
-    else:
-        resolved = p
+    resolved = resolve_rel(str(take))
     spec = {
-        "id": shot.get("id") or "",
+        "id": shot_id or "",
         "trim_in": edit.get("trim_in"),
         "trim_out": edit.get("trim_out"),
         "crop_4k_punchin": edit.get("crop_4k_punchin"),
         "grade": edit.get("grade") if isinstance(edit.get("grade"), dict) else None,
         "fade_out_black_s": edit.get("fade_out_black_s"),
     }
-    print(f"{resolved}\t{json.dumps(spec, separators=(',', ':'))}")
+    print(f"VIDEO\t{resolved}\t0\t{json.dumps(spec, separators=(',', ':'))}")
 PY
 )"
     DEFAULT_EDIT="{}"
-    while IFS=$'\t' read -r resolved_clip edit_json; do
-      [[ -n "$resolved_clip" ]] || continue
-      CLIPS+=("$resolved_clip")
-      CLIP_EDIT_JSONS+=("${edit_json:-$DEFAULT_EDIT}")
-    done <<< "$RESOLVED_CLIPS"
+    while IFS=$'\t' read -r ekind epath edur edit_json; do
+      [[ -n "$epath" ]] || continue
+      ENTRY_KINDS+=("$ekind")
+      ENTRY_PATHS+=("$epath")
+      ENTRY_DURS+=("$edur")
+      ENTRY_EDIT_JSONS+=("${edit_json:-$DEFAULT_EDIT}")
+    done <<< "$RESOLVED_ENTRIES"
   fi
 
-  [[ "${#CLIPS[@]}" -gt 0 ]] || die "no clips resolved for assembly"
+  ENTRY_COUNT="${#ENTRY_PATHS[@]}"
+  [[ "$ENTRY_COUNT" -gt 0 ]] || die "no clips resolved for assembly"
 
-  for clip in "${CLIPS[@]}"; do
-    [[ -f "$clip" ]] || die "clip file not found: $clip"
+  FIRST_VIDEO_CLIP=""
+  for ((ei = 0; ei < ENTRY_COUNT; ei++)); do
+    epath="${ENTRY_PATHS[$ei]}"
+    ekind="${ENTRY_KINDS[$ei]}"
+    if [[ "$ekind" == "STILL" ]]; then
+      [[ -f "$epath" ]] || die "still file not found: $epath"
+    else
+      [[ -f "$epath" ]] || die "clip file not found: $epath"
+      if [[ -z "$FIRST_VIDEO_CLIP" ]]; then
+        FIRST_VIDEO_CLIP="$epath"
+      fi
+    fi
   done
 
-  # Probe clip 1 for even target resolution and locked frame rate (manifest fps_target takes precedence)
-  FIRST_CLIP="${CLIPS[0]}"
-  PROBE_META="$("$PYTHON_BIN" - "$FIRST_CLIP" "$MANIFEST" <<'PY'
+  # Probe target resolution and FPS (prefer first video clip; fall back to still 1 + manifest fps_target/24)
+  PROBE_SRC="$FIRST_VIDEO_CLIP"
+  PROBE_IS_STILL="0"
+  if [[ -z "$PROBE_SRC" ]]; then
+    PROBE_SRC="${ENTRY_PATHS[0]}"
+    PROBE_IS_STILL="1"
+  fi
+  PROBE_META="$("$PYTHON_BIN" - "$PROBE_SRC" "$MANIFEST" "$PROBE_IS_STILL" <<'PY'
 import json, math, pathlib, subprocess, sys
-proc = subprocess.run(
-    ["ffprobe", "-v", "error", "-select_streams", "v:0",
-     "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate",
-     "-of", "json", sys.argv[1]],
-    capture_output=True, text=True, check=False
-)
-if proc.returncode != 0:
-    print(f"ERROR: ffprobe failed on clip 1: {proc.stderr.strip()}", file=sys.stderr)
-    sys.exit(2)
-streams = json.loads(proc.stdout).get("streams") or []
-if not streams:
-    print("ERROR: clip 1 has no video stream", file=sys.stderr)
-    sys.exit(2)
-st = streams[0]
-w = int(st["width"])
-h = int(st["height"])
-w = w + (w % 2)
-h = h + (h % 2)
+src_path = sys.argv[1]
+manifest_arg = sys.argv[2] if len(sys.argv) > 2 else ""
+is_still = (len(sys.argv) > 3 and sys.argv[3] == "1")
+
+aspect_map = {
+    "16:9": (1280, 720),
+    "9:16": (720, 1280),
+    "1:1": (1080, 1080),
+    "4:5": (864, 1080),
+    "4:3": (960, 720),
+}
 
 manifest_fps = ""
-if len(sys.argv) > 2 and sys.argv[2]:
+manifest_aspect = ""
+if manifest_arg:
     try:
-        mdata = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+        mdata = json.loads(pathlib.Path(manifest_arg).read_text(encoding="utf-8"))
         mfps = mdata.get("fps_target")
         if (
             isinstance(mfps, (int, float))
@@ -685,8 +753,42 @@ if len(sys.argv) > 2 and sys.argv[2]:
             and float(mfps) > 0
         ):
             manifest_fps = str(int(mfps)) if float(mfps).is_integer() else str(mfps)
+        manifest_aspect = str(mdata.get("aspect_ratio") or "").strip()
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         manifest_fps = ""
+        manifest_aspect = ""
+
+proc = subprocess.run(
+    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+     "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate",
+     "-of", "json", src_path],
+    capture_output=True, text=True, check=False
+)
+streams = []
+if proc.returncode == 0:
+    try:
+        streams = json.loads(proc.stdout).get("streams") or []
+    except (ValueError, TypeError):
+        streams = []
+
+w, h = None, None
+st = streams[0] if streams else {}
+if st.get("width") and st.get("height"):
+    w = int(st["width"])
+    h = int(st["height"])
+
+if not w or not h:
+    if is_still:
+        w, h = aspect_map.get(manifest_aspect, (1280, 720))
+    else:
+        if proc.returncode != 0:
+            print(f"ERROR: ffprobe failed on clip 1: {proc.stderr.strip()}", file=sys.stderr)
+        else:
+            print("ERROR: clip 1 has no video stream", file=sys.stderr)
+        sys.exit(2)
+
+w = w + (w % 2)
+h = h + (h % 2)
 
 def valid_rate(rate_str):
     if not rate_str or rate_str == "0/0":
@@ -703,38 +805,56 @@ def valid_rate(rate_str):
     except ValueError:
         return False
 
-avg_fps = st.get("avg_frame_rate") or ""
-r_fps = st.get("r_frame_rate") or ""
-fps = manifest_fps if manifest_fps else (avg_fps if valid_rate(avg_fps) else (r_fps if valid_rate(r_fps) else "24/1"))
+if is_still:
+    fps = manifest_fps if manifest_fps else "24"
+else:
+    avg_fps = st.get("avg_frame_rate") or ""
+    r_fps = st.get("r_frame_rate") or ""
+    fps = manifest_fps if manifest_fps else (avg_fps if valid_rate(avg_fps) else (r_fps if valid_rate(r_fps) else "24/1"))
 print(f"{w} {h} {fps}")
 PY
 )"
   read -r TARGET_W TARGET_H TARGET_FPS <<< "$PROBE_META"
 
-  CLIP_TOTAL="${#CLIPS[@]}"
   DEFAULT_EDIT="{}"
-  for ((ci = 0; ci < CLIP_TOTAL; ci++)); do
-    clip="${CLIPS[$ci]}"
-    edit_json="${CLIP_EDIT_JSONS[$ci]:-$DEFAULT_EDIT}"
+  for ((ei = 0; ei < ENTRY_COUNT; ei++)); do
     IDX=$((IDX + 1))
+    ekind="${ENTRY_KINDS[$ei]}"
+    clip="${ENTRY_PATHS[$ei]}"
+    edur="${ENTRY_DURS[$ei]}"
+    edit_json="${ENTRY_EDIT_JSONS[$ei]:-$DEFAULT_EDIT}"
     CLIP_NAME="$(printf "clip_%02d.mp4" "$IDX")"
     OUT_CLIP="${WORKDIR}/${CLIP_NAME}"
-    AUDIO_STREAM="$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$clip" | head -n 1 || true)"
 
-    CLIP_DIM_FPS="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,avg_frame_rate -of csv=p=0 "$clip" | head -n 1 || true)"
-    CLIP_DUR_RAW="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$clip" | head -n 1 || true)"
-    if [[ -n "$CLIP_DIM_FPS" ]]; then
-      IFS=',' read -r cw ch cfps <<< "$CLIP_DIM_FPS"
-      if [[ -n "$cw" && -n "$ch" ]] && [[ "$cw" != "$TARGET_W" || "$ch" != "$TARGET_H" ]]; then
-        echo "WARN: clip '${clip}' dimensions (${cw}x${ch}) differ from target (${TARGET_W}x${TARGET_H}); lanczos scaling/padding applied" >&2
-      fi
-      if [[ -n "$cfps" && "$cfps" != "$TARGET_FPS" && "$cfps" != "${TARGET_FPS}/1" ]]; then
-        echo "WARN: clip '${clip}' native FPS (${cfps}) differs from target (${TARGET_FPS}); check for pulldown judder" >&2
-      fi
-    fi
+    if [[ "$ekind" == "STILL" ]]; then
+      VF_STILL="scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${TARGET_W}:${TARGET_H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+      ffmpeg -v error -y \
+        -loop 1 -framerate "$TARGET_FPS" -t "$edur" -i "$clip" \
+        -f lavfi -t "$edur" -i "anullsrc=channel_layout=stereo:sample_rate=48000" \
+        -map 0:v:0 -map 1:a:0 \
+        -vf "$VF_STILL" \
+        -r "$TARGET_FPS" \
+        -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+        -c:a aac -b:a 192k -ar 48000 -ac 2 \
+        -shortest \
+        "$OUT_CLIP"
+    else
+      AUDIO_STREAM="$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$clip" | head -n 1 || true)"
 
-    # Build per-shot trim, optional 4K 2x punch-in crop, pre-LUT grade match, and fade-to-black filters
-    EDIT_PARSED="$("$PYTHON_BIN" - "$edit_json" "$TARGET_W" "$TARGET_H" "${CLIP_DUR_RAW:-0}" <<'PY'
+      CLIP_DIM_FPS="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,avg_frame_rate -of csv=p=0 "$clip" | head -n 1 || true)"
+      CLIP_DUR_RAW="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$clip" | head -n 1 || true)"
+      if [[ -n "$CLIP_DIM_FPS" ]]; then
+        IFS=',' read -r cw ch cfps <<< "$CLIP_DIM_FPS"
+        if [[ -n "$cw" && -n "$ch" ]] && [[ "$cw" != "$TARGET_W" || "$ch" != "$TARGET_H" ]]; then
+          echo "WARN: clip '${clip}' dimensions (${cw}x${ch}) differ from target (${TARGET_W}x${TARGET_H}); lanczos scaling/padding applied" >&2
+        fi
+        if [[ -n "$cfps" && "$cfps" != "$TARGET_FPS" && "$cfps" != "${TARGET_FPS}/1" ]]; then
+          echo "WARN: clip '${clip}' native FPS (${cfps}) differs from target (${TARGET_FPS}); check for pulldown judder" >&2
+        fi
+      fi
+
+      # Build per-shot trim, optional 4K 2x punch-in crop, pre-LUT grade match, and fade-to-black filters
+      EDIT_PARSED="$("$PYTHON_BIN" - "$edit_json" "$TARGET_W" "$TARGET_H" "${CLIP_DUR_RAW:-0}" <<'PY'
 import json, math, re, sys
 spec = json.loads(sys.argv[1] or "{}")
 tw, th = int(sys.argv[2]), int(sys.argv[3])
@@ -828,40 +948,41 @@ print(dur_str)
 print(",".join(vf_parts))
 PY
 )"
-    {
-      IFS= read -r TRIM_SS || true
-      IFS= read -r TRIM_DUR || true
-      IFS= read -r VF_NORM || true
-    } <<< "$EDIT_PARSED"
+      {
+        IFS= read -r TRIM_SS || true
+        IFS= read -r TRIM_DUR || true
+        IFS= read -r VF_NORM || true
+      } <<< "$EDIT_PARSED"
 
-    IN_ARGS=()
-    TRIM_OUT_ARGS=()
-    if [[ -n "$TRIM_SS" ]]; then
-      IN_ARGS+=(-ss "$TRIM_SS")
-    fi
-    if [[ -n "$TRIM_DUR" ]]; then
-      TRIM_OUT_ARGS+=(-t "$TRIM_DUR")
-    fi
+      IN_ARGS=()
+      TRIM_OUT_ARGS=()
+      if [[ -n "$TRIM_SS" ]]; then
+        IN_ARGS+=(-ss "$TRIM_SS")
+      fi
+      if [[ -n "$TRIM_DUR" ]]; then
+        TRIM_OUT_ARGS+=(-t "$TRIM_DUR")
+      fi
 
-    if [[ -n "$AUDIO_STREAM" ]]; then
-      HAS_CLIP_AUDIO=1
-      ffmpeg -v error -y "${IN_ARGS[@]+"${IN_ARGS[@]}"}" -i "$clip" "${TRIM_OUT_ARGS[@]+"${TRIM_OUT_ARGS[@]}"}" \
-        -vf "$VF_NORM" \
-        -r "$TARGET_FPS" \
-        -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
-        -c:a aac -b:a 192k -ar 48000 -ac 2 \
-        "$OUT_CLIP"
-    else
-      ffmpeg -v error -y "${IN_ARGS[@]+"${IN_ARGS[@]}"}" -i "$clip" \
-        -f lavfi -i "anullsrc=channel_layout=stereo:sample_rate=48000" \
-        -map 0:v:0 -map 1:a:0 \
-        "${TRIM_OUT_ARGS[@]+"${TRIM_OUT_ARGS[@]}"}" \
-        -vf "$VF_NORM" \
-        -r "$TARGET_FPS" \
-        -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
-        -c:a aac -b:a 192k -ar 48000 -ac 2 \
-        -shortest \
-        "$OUT_CLIP"
+      if [[ -n "$AUDIO_STREAM" ]]; then
+        HAS_CLIP_AUDIO=1
+        ffmpeg -v error -y "${IN_ARGS[@]+"${IN_ARGS[@]}"}" -i "$clip" "${TRIM_OUT_ARGS[@]+"${TRIM_OUT_ARGS[@]}"}" \
+          -vf "$VF_NORM" \
+          -r "$TARGET_FPS" \
+          -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+          -c:a aac -b:a 192k -ar 48000 -ac 2 \
+          "$OUT_CLIP"
+      else
+        ffmpeg -v error -y "${IN_ARGS[@]+"${IN_ARGS[@]}"}" -i "$clip" \
+          -f lavfi -i "anullsrc=channel_layout=stereo:sample_rate=48000" \
+          -map 0:v:0 -map 1:a:0 \
+          "${TRIM_OUT_ARGS[@]+"${TRIM_OUT_ARGS[@]}"}" \
+          -vf "$VF_NORM" \
+          -r "$TARGET_FPS" \
+          -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+          -c:a aac -b:a 192k -ar 48000 -ac 2 \
+          -shortest \
+          "$OUT_CLIP"
+      fi
     fi
     NORM_CLIPS+=("$OUT_CLIP")
   done
@@ -907,18 +1028,134 @@ fi
 VIDEO_ONLY="${WORKDIR}/video_only.mp4"
 DIEGETIC_WAV="${WORKDIR}/diegetic.wav"
 
-if [[ -n "$OVERLAY" ]]; then
-  OV_IDX="$CLIP_COUNT"
-  CONCAT_INPUTS+=(-i "$OVERLAY")
-  CONCAT_FILTER="${CONCAT_FILTER};[${OV_IDX}:v]scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${TARGET_W}:${TARGET_H}:(ow-iw)/2:(oh-ih)/2:color=black@0,format=rgba[ovscaled];${VIDEO_MAP}[ovscaled]overlay=0:0:eof_action=pass:format=auto[vov]"
-  VIDEO_MAP="[vov]"
-fi
-
 ffmpeg -v error -y \
   "${CONCAT_INPUTS[@]}" \
   -filter_complex "$CONCAT_FILTER" \
   -map "$VIDEO_MAP" -an -r "$TARGET_FPS" -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 "$VIDEO_ONLY" \
   -map "[acat]" -vn -c:a pcm_s16le -ar 48000 -ac 2 "$DIEGETIC_WAV"
+
+# Composite optional post-LUT/post-grain alpha overlay (ProRes 4444 / WebM / PNG)
+if [[ -n "$OVERLAY" ]]; then
+  GRADED_DURATION="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$VIDEO_ONLY")"
+  OVERLAY_META="$("$PYTHON_BIN" - "$OVERLAY" <<'PY'
+import json, subprocess, sys
+
+ov_path = sys.argv[1]
+proc = subprocess.run(
+    ["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", ov_path],
+    capture_output=True, text=True, check=False,
+)
+if proc.returncode != 0:
+    print(f"ERROR: ffprobe failed on --overlay '{ov_path}': {proc.stderr.strip()}", file=sys.stderr)
+    sys.exit(2)
+data = json.loads(proc.stdout)
+streams = data.get("streams") or []
+vstream = next((s for s in streams if s.get("codec_type") == "video"), None)
+if vstream is None:
+    print(f"ERROR: --overlay '{ov_path}' has no video/image stream", file=sys.stderr)
+    sys.exit(2)
+fmt_name = str((data.get("format") or {}).get("format_name") or "").lower()
+codec = str(vstream.get("codec_name") or "").lower()
+raw_dur = (data.get("format") or {}).get("duration") or vstream.get("duration")
+raw_frames = vstream.get("nb_frames")
+nb_frames = (
+    int(raw_frames)
+    if isinstance(raw_frames, str) and raw_frames.isdigit()
+    else (raw_frames if isinstance(raw_frames, int) else None)
+)
+
+is_still = (
+    codec in ("png", "tiff", "bmp", "mjpeg", "webp")
+    and (nb_frames is None or nb_frames <= 1)
+    and not raw_dur
+) or any(
+    tok in fmt_name
+    for tok in ("png_pipe", "tiff_pipe", "bmp_pipe", "jpeg_pipe", "webp_pipe", "image2")
+)
+
+if is_still:
+    # Only loop still overlays across full duration when the still has actual transparency (alpha < 255)
+    alpha_proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", ov_path, "-frames:v", "1", "-vf", "scale=64:64", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+        capture_output=True, check=False,
+    )
+    if alpha_proc.returncode == 0 and len(alpha_proc.stdout) >= 4:
+        if min(alpha_proc.stdout[3::4]) >= 255:
+            is_still = False
+
+decoder = ""
+if codec in ("vp9", "vp8"):
+    wanted = "libvpx-vp9" if codec == "vp9" else "libvpx"
+    dec_proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-decoders"],
+        capture_output=True, text=True, check=False,
+    )
+    if dec_proc.returncode == 0 and wanted in dec_proc.stdout:
+        decoder = wanted
+
+print(f"{'1' if is_still else '0'} {decoder}")
+PY
+)"
+  OVERLAY_IS_STILL="0"
+  OVERLAY_DECODER=""
+  read -r OVERLAY_IS_STILL OVERLAY_DECODER <<< "$OVERLAY_META"
+
+  OVERLAY_IN_ARGS=()
+  if [[ "$OVERLAY_IS_STILL" == "1" ]]; then
+    OVERLAY_IN_ARGS=(-loop 1 -framerate "$TARGET_FPS" -t "$GRADED_DURATION" -i "$OVERLAY")
+  elif [[ -n "$OVERLAY_DECODER" ]]; then
+    OVERLAY_IN_ARGS=(-c:v "$OVERLAY_DECODER" -i "$OVERLAY")
+  else
+    OVERLAY_IN_ARGS=(-i "$OVERLAY")
+  fi
+
+  OVERLAY_VIDEO="${WORKDIR}/video_overlay.mp4"
+  ffmpeg -v error -y \
+    -i "$VIDEO_ONLY" \
+    "${OVERLAY_IN_ARGS[@]}" \
+    -filter_complex "[0:v]format=rgba[base];[1:v]scale=${TARGET_W}:${TARGET_H}:flags=lanczos,setsar=1,format=rgba[ov];[base][ov]overlay=0:0:shortest=0:eof_action=pass:format=rgb,format=yuv420p[vout]" \
+    -map "[vout]" -an -r "$TARGET_FPS" -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+    "$OVERLAY_VIDEO"
+  mv "$OVERLAY_VIDEO" "$VIDEO_ONLY"
+fi
+
+# Append optional post-LUT/post-grain closing brand endcard cleanly after graded timeline
+if [[ -n "$ENDCARD" ]]; then
+  ENDCARD_NORM="${WORKDIR}/endcard_norm.mp4"
+  ENDCARD_AUDIO_STREAM="$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$ENDCARD" | head -n 1 || true)"
+  VF_ENDCARD="scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${TARGET_W}:${TARGET_H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+  if [[ -n "$ENDCARD_AUDIO_STREAM" ]]; then
+    HAS_CLIP_AUDIO=1
+    ffmpeg -v error -y -i "$ENDCARD" \
+      -vf "$VF_ENDCARD" \
+      -r "$TARGET_FPS" \
+      -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+      -c:a aac -b:a 192k -ar 48000 -ac 2 \
+      "$ENDCARD_NORM"
+  else
+    ffmpeg -v error -y -i "$ENDCARD" \
+      -f lavfi -i "anullsrc=channel_layout=stereo:sample_rate=48000" \
+      -map 0:v:0 -map 1:a:0 \
+      -vf "$VF_ENDCARD" \
+      -r "$TARGET_FPS" \
+      -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 \
+      -c:a aac -b:a 192k -ar 48000 -ac 2 \
+      -shortest \
+      "$ENDCARD_NORM"
+  fi
+
+  APPENDED_VIDEO="${WORKDIR}/video_with_endcard.mp4"
+  APPENDED_DIEGETIC="${WORKDIR}/diegetic_with_endcard.wav"
+  ffmpeg -v error -y \
+    -i "$VIDEO_ONLY" \
+    -i "$DIEGETIC_WAV" \
+    -i "$ENDCARD_NORM" \
+    -filter_complex "[0:v:0][1:a:0][2:v:0][2:a:0]concat=n=2:v=1:a=1[vout][aout]" \
+    -map "[vout]" -an -r "$TARGET_FPS" -c:v libx264 -crf 18 -pix_fmt yuv420p -g 30 "$APPENDED_VIDEO" \
+    -map "[aout]" -vn -c:a pcm_s16le -ar 48000 -ac 2 "$APPENDED_DIEGETIC"
+  mv "$APPENDED_VIDEO" "$VIDEO_ONLY"
+  mv "$APPENDED_DIEGETIC" "$DIEGETIC_WAV"
+fi
 
 VIDEO_DURATION="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$VIDEO_ONLY")"
 

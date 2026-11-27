@@ -5,26 +5,26 @@ Executable decision spec for moving from `R4` motion drafts to broadcast-clean `
 ## 1. Hard Invariant: Zero `480p → 1080p` Pixel Upscaling
 
 - **Never pixel-upscale `480p` drafts into `1080p` masters.** `854×480 → 1920×1080` is a **2.25× linear / 5.06× pixel-area** jump (>80% fabricated pixels) on `< 1 Mbps` compressed drafts, causing bright white edge halos, muddy/blotchy faces, `1.4×–2.0×` high-frequency crunch, and `1918×1080` rounding.
-- **Worse economics than native `1080p`:** `480p` CS 4.0 (`15 cr.`) + `bytedance_video_upscale pro` (`10 cr.`) = **`25 cr./shot`** for haloed fake `1080p`, whereas **native `1080p`** costs **`17.5 cr.`** on `wan3_0` and **`18.75 cr.`** on `kling4_0`.
+- **Worse economics than native `1080p`:** `480p` CS 4.0 (`15 cr.`) + `bytedance_video_upscale pro` (`10 cr.`) = **`25 cr./shot`** for haloed fake `1080p`, whereas **native `1080p`/`2K`** costs **`10 cr.`** (`2K` `minimax_h3`), **`12.5 cr.`** (`magi_2`), **`15 cr.`** (`wan3_0`), and **`18.75 cr.`** (`kling4_0 --duration 5`).
 - **Never offer `480p → 1080p` pixel upscaling in `R4B` Dailies as a budget shortcut.** Quote native `1080p` paths below instead.
 
 ## 2. Deterministic Shot Routing Algorithm (`R1B` / `R4` → `R5`)
 
 Evaluate each shot top-to-bottom and take the **first matching branch**:
 
-1. **IF** the target engine has an active **`Unlimited` (`0 cr.`)** toggle on `higgsfield.ai` and queue latency fits the round → **Path 1 (Web `Unlimited`)**: generate via the `browser` subagent (`0 cr.`), download, probe with `qa_media.py`, and ingest.
+1. **IF** the target engine has an active **`Unlimited` (`0 cr.`)** toggle on `higgsfield.ai` whose **Generate CTA flips to `Unlimited` (`0 cr.`)** (badges alone may redirect monthly plans to `/market` paywalls) and queue latency fits the round → **Path 1 (Web `Unlimited`)**: generate via the `browser` subagent (`0 cr.`), download, probe with `qa_media.py`, and ingest.
 2. **ELSE IF** the shot requires **`> 10` reference images** OR **irreplaceable acting/mirror/VFX timing** that must transfer 1:1 from draft to final → **Path 2 (Latent Escalation)**:
    - `R4`: `seedance_2_5 --mode omni_reference --draft true` (`15 cr.`).
    - `R5`: `seedance_2_5 --mode omni_reference --draft_job_id <draft_job_id> --start_image <still_uuid> [--image_references ...] --resolution 1080p --bitrate_mode high` (`80 cr.`).
    - *Rule:* `--draft_job_id` accepts **only** a job UUID created by `seedance_2_5 --draft true` (expires ~7–14 days), and CLI CEL still requires `--start_image`/refs when `--mode omni_reference` is set. CLI `cinematic_studio_video_4_0` does **not** expose `--draft_job_id`.
 3. **ELSE IF** the shot needs **multi-ref (`<= 10` images) or dynamic action/wardrobe choreography** at low `R5` cost → **Path 3A (Kling 4.0 Native `1080p`)**:
-   - `R4`: `kling_4_0_flash --resolution 720p` (`7.5 cr.`) or `seedance_2_0_mini --resolution 720p` (`5 cr.`).
-   - `R5`: `kling4_0 --mode reference-to-video --resolution 1080p` (`18.75 cr.`; optional `--dynamic_range hdr`).
-4. **ELSE IF** the shot is a **calm single-frame I2V or moody atmospheric beat** (`start_image` only, no multi-ref stack) → **Path 3B (Wan / Veo / FLUX Native `1080p`)**:
-   - `R4`: `wan3_0 --resolution 720p` (`8.75 cr.`) or `seedance_2_0_mini --resolution 720p` (`5 cr.`).
-   - `R5`: `wan3_0 --resolution 1080p` (`17.5 cr.`; verify FPS—may output `30fps`), `veo3_1 --variant veo-3-1-fast --quality high` (`16 cr.`, 4s), `wan3_0_prime --resolution 1080p` (`30 cr.`), or `flux_3_video --resolution 1080p` (`40 cr.`).
+   - `R4`: `kling_4_0_flash --resolution 720p --duration 5` (`7.5 cr.`; no `end_image`) or `seedance_2_0_mini --resolution 720p` (`5 cr.`).
+   - `R5`: `kling4_0 --mode reference-to-video --resolution 1080p --duration 5` (`18.75 cr.`; optional `--dynamic_range hdr` at `22.5 cr.`; default `duration` is `10`).
+4. **ELSE IF** the shot is a **calm single-frame I2V or moody atmospheric beat** (`start_image` only, no multi-ref stack) → **Path 3B (Wan / Veo / MiniMax / Magi / FLUX Native `1080p`/`2K`)**:
+   - `R4`: `wan3_0 --resolution 720p --duration 5` (`7.5 cr.`) or `seedance_2_0_mini --resolution 720p` (`5 cr.`).
+   - `R5`: `minimax_h3 --duration 5` (`10 cr.`, native `2K`), `magi_2 --resolution 1080p --duration 5` (`12.5 cr.`, supports `seed`), `wan3_0 --resolution 1080p --duration 5` (`15 cr.`; verify FPS—may output `30fps`), `veo3_1 --variant veo-3-1-fast --quality high` (`16 cr.`, 4s), `wan3_0_prime --resolution 1080p --duration 5` (`27.5 cr.`), or `flux_3_video --resolution 1080p` (`40 cr.`).
 5. **ELSE IF** an approved **golden `480p` take already exists without `--draft_job_id`** (e.g. legacy CS 4.0 CLI draft) and its exact choreography cannot be lost → **Path 4 (Motion-Locked Native `1080p` Rescue)**:
-   - Run `kling4_0 --mode video-edit --resolution 1080p` (`22.5 cr.`) passing `--video_references <draft_job_id>` + clean `R2`/`R3` `--image_references` so the model re-synthesizes fresh `1080p` skin, hair, and fabric over the locked motion.
+   - Run `kling4_0 --mode video-edit --resolution 1080p --duration 5` (`22.5 cr.`) passing `--video_references <draft_job_id>` + clean `R2`/`R3` `--image_references` so the model re-synthesizes fresh `1080p` skin, hair, and fabric over the locked motion.
    - Alternative: extract grayscale depth via `depth_anything_video --resolution 720p` (`7.57 cr.`) + clean refs into a native `1080p` generator.
 6. **ELSE IF** the shot is **already clean native `>= 720p`** (`720p → 1080p` = `1.5×`, or `1080p → 2K/4K` ≤ `2.0×`) AND passes **every check in Section 4 (6-Rule Upscale Gate)** → **Path 5 (Selective Pixel Upscaling)**:
    - Prove on **1 high-risk shot first** (face + high-contrast edge) and verify `1:1` `--crops` before batching remaining shots.
