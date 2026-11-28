@@ -1,18 +1,36 @@
-# higgsfield-video-harness
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Dankosik/higgsfield-video-harness/main/.github/assets/header.svg" alt="higgsfield-video-harness — Agentic AI commercial and film production studio" width="840" />
+</p>
 
-**An agentic AI video and commercial production studio for AI coding agents (Claude Code, Codex, Cursor, Antigravity, and more) + Higgsfield CLI + FFmpeg.**
+<p align="center">
+  <strong>An agentic AI video and commercial production studio for AI coding agents (Claude Code, Codex, Cursor, Antigravity, and more) + Higgsfield CLI + FFmpeg.</strong>
+</p>
 
-[![CI](https://github.com/Dankosik/higgsfield-video-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/Dankosik/higgsfield-video-harness/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](#prerequisites)
-[![Zero PyPI Dependencies](https://img.shields.io/badge/Dependencies-Python%20stdlib%20%2B%20FFmpeg-2ea44f)](#prerequisites)
-[![AGENTS.md + Skills](https://img.shields.io/badge/AGENTS.md-4%20Roles%20%7C%2013%20Skills-111827)](#multi-agent-architecture)
+<p align="center">
+  <a href="https://github.com/Dankosik/higgsfield-video-harness/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dankosik/higgsfield-video-harness/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+  <a href="#prerequisites"><img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white"></a>
+  <a href="#prerequisites"><img alt="Zero PyPI Dependencies" src="https://img.shields.io/badge/Dependencies-Python%20stdlib%20%2B%20FFmpeg-2ea44f"></a>
+  <a href="#multi-agent-architecture"><img alt="AGENTS.md + Skills" src="https://img.shields.io/badge/AGENTS.md-4%20Roles%20%7C%2013%20Skills-111827"></a>
+</p>
+
+<p align="center">
+  <a href="#why-this-exists">Why This Exists</a> ·
+  <a href="#key-features">Key Features</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#example-walkthrough">Example Walkthrough</a> ·
+  <a href="#supported-models--cost-routing">Supported Models</a> ·
+  <a href="#multi-agent-architecture">Architecture</a> ·
+  <a href="#commands--scripts">Commands</a> ·
+  <a href="#faq">FAQ</a>
+</p>
+
+---
 
 Turn a plain-English idea (and optional product photos) into a multi-shot, broadcast-ready **1080p AI commercial or short film**—without wasting credits on random video rolls.
 
 You act as the **Creative Director**: pick among real visual options (`A / B / C`), react in everyday language (*"cooler morning light, matte leather instead of glossy, hold shot 2 longer"*), and approve each round's exact credit quote. A coordinated **multi-agent crew** handles ad concepts, scripts, storyboards, lookbooks, zero-video-credit animatics, model routing, visual QC, and FFmpeg mastering.
-
-[Why This Exists](#why-this-exists) · [Key Features](#key-features) · [How It Works](#how-it-works) · [Quick Start](#quick-start) · [Example Walkthrough](#example-walkthrough) · [Supported Models](#supported-models--cost-routing) · [Architecture](#multi-agent-architecture) · [Commands](#commands--scripts) · [FAQ](#faq)
 
 ---
 
